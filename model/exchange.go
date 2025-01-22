@@ -63,22 +63,42 @@ type OrderChanceResponse struct {
 
 // OrderResponse : 주문 생성/취소/조회 시 반환되는 객체
 type OrderResponse struct {
-	UUID            string    `json:"uuid"`
-	Side            string    `json:"side"`
-	OrdType         string    `json:"ord_type"`
-	Price           string    `json:"price"`
-	State           string    `json:"state"`
-	Market          string    `json:"market"`
-	CreatedAt       time.Time `json:"created_at"`
-	Volume          string    `json:"volume"`
-	RemainingVolume string    `json:"remaining_volume"`
-	ReservedFee     string    `json:"reserved_fee"`
-	RemainingFee    string    `json:"remaining_fee"`
-	PaidFee         string    `json:"paid_fee"`
-	Locked          string    `json:"locked"`
-	ExecutedVolume  string    `json:"executed_volume"`
-	TradesCount     int       `json:"trades_count"`
-	Trades          []Trade   `json:"trades"` // 체결 내역이 있을 경우
+	UUID            string  `json:"uuid"`
+	Side            string  `json:"side"`
+	OrdType         string  `json:"ord_type"`
+	Price           string  `json:"price"`
+	State           string  `json:"state"`
+	Market          string  `json:"market"`
+	CreatedAt       string  `json:"created_at"`
+	Volume          string  `json:"volume"`
+	RemainingVolume string  `json:"remaining_volume"`
+	ReservedFee     string  `json:"reserved_fee"`
+	RemainingFee    string  `json:"remaining_fee"`
+	PaidFee         string  `json:"paid_fee"`
+	Locked          string  `json:"locked"`
+	ExecutedVolume  string  `json:"executed_volume"`
+	TradesCount     int     `json:"trades_count"`
+	Trades          []Trade `json:"trades"` // 체결 내역이 있을 경우
+}
+
+type OrdersResponse struct {
+	UUID            string `json:"uuid"`
+	Side            string `json:"side"`
+	OrdType         string `json:"ord_type"`
+	Price           string `json:"price"`
+	State           string `json:"state"`
+	Market          string `json:"market"`
+	CreatedAt       string `json:"created_at"`
+	Volume          string `json:"volume"`
+	RemainingVolume string `json:"remaining_volume"`
+	ReservedFee     string `json:"reserved_fee"`
+	RemainingFee    string `json:"remaining_fee"`
+	PaidFee         string `json:"paid_fee"`
+	Locked          string `json:"locked"`
+	ExecutedVolume  string `json:"executed_volume"`
+	ExecutedFunds   string `json:"executed_funds"`
+	TradesCount     int    `json:"trades_count"`
+	Identifier      string `json:"identifier"`
 }
 
 type Trade struct {

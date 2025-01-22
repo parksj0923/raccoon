@@ -31,6 +31,7 @@ const (
 	OrderStatusTypeCanceled OrderStatusType = "cancel"
 	OrderStatusTypeDone     OrderStatusType = "done"
 	OrderStatusTypeWait     OrderStatusType = "wait"
+	OrderStatusTypeWatch    OrderStatusType = "watch"
 )
 
 type Order struct {

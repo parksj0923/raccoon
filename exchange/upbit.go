@@ -187,12 +187,26 @@ func (u *Upbit) Order(pair string, uuidOrIdentifier string, isIdentifier bool) (
 	if err := json.Unmarshal(body, &orderResp); err != nil {
 		return model.Order{}, err
 	}
-	return upbitOrderToModelOrder(orderResp, pair), nil
+	return convertOrderToModelOrder(orderResp, pair), nil
 }
 
 func (u *Upbit) OpenOrders(pair string, limit int) ([]model.Order, error) {
-	// 미구현
-	return nil, errors.New("not implemented: Upbit orders list")
+	params := map[string]string{
+		"market":   pair,
+		"states[]": "wait",
+		"limit":    strconv.Itoa(limit),
+		"order_by": "desc",
+	}
+	body, err := u.requestUpbitGET(u.ctx, "/v1/orders/open", params)
+	if err != nil {
+		return nil, err
+	}
+	var resp []model.OrdersResponse
+	if e := json.Unmarshal(body, &resp); e != nil {
+		return nil, e
+	}
+
+	return convertMultiOrdersToModelOrders(resp, pair), nil
 }
 
 func (u *Upbit) ClosedOrders(pair string, limit int) ([]model.Order, error) {
@@ -201,7 +215,7 @@ func (u *Upbit) ClosedOrders(pair string, limit int) ([]model.Order, error) {
 }
 
 func (u *Upbit) CreateOrderLimit(side model.SideType, pair string,
-	quantity float64, limit float64, tif ...string) (model.Order, error) {
+	quantity float64, limit float64, tif ...model.TimeInForceType) (model.Order, error) {
 	// Upbit: ord_type=limit, side=(bid|ask), price=limit, volume=quantity, tif(optional)=(ioc|fok)
 	params := map[string]string{
 		"market":   pair,
@@ -211,7 +225,7 @@ func (u *Upbit) CreateOrderLimit(side model.SideType, pair string,
 		"volume":   floatToString(quantity),
 	}
 	if len(tif) == 1 {
-		params["tif"] = tif[0]
+		params["time_in_force"] = string(tif[0])
 	}
 	body, err := u.requestUpbitPOST(u.ctx, "/v1/orders", params)
 	if err != nil {
@@ -221,7 +235,7 @@ func (u *Upbit) CreateOrderLimit(side model.SideType, pair string,
 	if err := json.Unmarshal(body, &resp); err != nil {
 		return model.Order{}, err
 	}
-	return upbitOrderToModelOrder(resp, pair), nil
+	return convertOrderToModelOrder(resp, pair), nil
 }
 
 func (u *Upbit) CreateOrderMarket(side model.SideType, pair string, quantity float64) (model.Order, error) {
@@ -242,7 +256,7 @@ func (u *Upbit) CreateOrderMarket(side model.SideType, pair string, quantity flo
 		if err := json.Unmarshal(body, &resp); err != nil {
 			return model.Order{}, err
 		}
-		return upbitOrderToModelOrder(resp, pair), nil
+		return convertOrderToModelOrder(resp, pair), nil
 	} else {
 		params := map[string]string{
 			"market":   pair,
@@ -258,11 +272,11 @@ func (u *Upbit) CreateOrderMarket(side model.SideType, pair string, quantity flo
 		if err := json.Unmarshal(body, &resp); err != nil {
 			return model.Order{}, err
 		}
-		return upbitOrderToModelOrder(resp, pair), nil
+		return convertOrderToModelOrder(resp, pair), nil
 	}
 }
 
-func (u *Upbit) CreateOrderBest(side model.SideType, pair string, quantity float64, tif ...string) (model.Order, error) {
+func (u *Upbit) CreateOrderBest(side model.SideType, pair string, quantity float64, tif ...model.TimeInForceType) (model.Order, error) {
 	// ioc =>
 	//		매수 -> tif=ioc, side=bid, ord_type=best, quantity=price
 	// 		매도 -> tif=ioc, side=ask, ord_type=best, quantity=volume
@@ -274,9 +288,10 @@ func (u *Upbit) CreateOrderBest(side model.SideType, pair string, quantity float
 	}
 
 	params := map[string]string{
-		"market":   pair,
-		"side":     string(side),
-		"ord_type": string(model.OrderTypeBest),
+		"market":        pair,
+		"side":          string(side),
+		"ord_type":      string(model.OrderTypeBest),
+		"time_in_force": string(tif[0]),
 	}
 	if side == model.SideTypeBuy {
 		params["price"] = floatToString(quantity)
@@ -292,7 +307,7 @@ func (u *Upbit) CreateOrderBest(side model.SideType, pair string, quantity float
 	if e := json.Unmarshal(body, &resp); e != nil {
 		return model.Order{}, e
 	}
-	return upbitOrderToModelOrder(resp, pair), nil
+	return convertOrderToModelOrder(resp, pair), nil
 }
 
 func (u *Upbit) Cancel(order model.Order, isIdentifier bool) error {
@@ -609,9 +624,20 @@ func SplitAssetQuote(pair string) (base, quote string) {
 	return pair, ""
 }
 
-func upbitOrderToModelOrder(o model.OrderResponse, pair string) model.Order {
+func convertOrderToModelOrder(o model.OrderResponse, pair string) model.Order {
 	priceF, _ := strconv.ParseFloat(o.Price, 64)
 	volF, _ := strconv.ParseFloat(o.Volume, 64)
+	var createdTime time.Time
+	if o.CreatedAt != "" {
+		// Upbit가 "2024-06-13T10:28:36+09:00" 형태이므로, time.RFC3339 파싱 가능
+		t, err := time.Parse(time.RFC3339, o.CreatedAt)
+		if err == nil {
+			createdTime = t
+		} else {
+			log.Warnf("[Upbit] convert order create time fail: %v", o)
+			createdTime = time.Now()
+		}
+	}
 	return model.Order{
 		ExchangeID: o.UUID,
 		Pair:       pair,
@@ -620,9 +646,39 @@ func upbitOrderToModelOrder(o model.OrderResponse, pair string) model.Order {
 		Status:     model.OrderStatusType(o.State),
 		Price:      priceF,
 		Quantity:   volF,
-		CreatedAt:  o.CreatedAt,
+		CreatedAt:  createdTime,
 		UpdatedAt:  time.Now(),
 	}
+}
+
+func convertMultiOrdersToModelOrders(orders []model.OrdersResponse, pair string) []model.Order {
+	results := collection.Map(orders, func(o model.OrdersResponse) model.Order {
+		priceF, _ := strconv.ParseFloat(o.Price, 64)
+		volF, _ := strconv.ParseFloat(o.Volume, 64)
+		var createdTime time.Time
+		if o.CreatedAt != "" {
+			// Upbit가 "2024-06-13T10:28:36+09:00" 형태이므로, time.RFC3339 파싱 가능
+			t, err := time.Parse(time.RFC3339, o.CreatedAt)
+			if err == nil {
+				createdTime = t
+			} else {
+				log.Warnf("[Upbit] convert order create time fail: %v", o)
+				createdTime = time.Now()
+			}
+		}
+		return model.Order{
+			ExchangeID: o.UUID,
+			Pair:       pair,
+			Side:       model.SideType(o.Side),
+			Type:       model.OrderType(o.OrdType),
+			Status:     model.OrderStatusType(o.State),
+			Price:      priceF,
+			Quantity:   volF,
+			CreatedAt:  createdTime,
+			UpdatedAt:  time.Now(),
+		}
+	})
+	return results
 }
 
 // requestUpbitGET : Upbit JWT + GET
