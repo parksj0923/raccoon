@@ -17,7 +17,7 @@ import (
 // - accessKey: 업비트 Access Key
 // - secretKey: 업비트 Secret Key
 // - params: 쿼리 파라미터 (없을 경우 nil 또는 빈 map 전달)
-func GenerateJWT(accessKey string, secretKey string, params map[string]string) (string, error) {
+func GenerateJWT(accessKey string, secretKey string, params map[string]interface{}) (string, error) {
 	nonce := strconv.FormatInt(time.Now().UnixNano(), 10) + "_" + strconv.Itoa(rand.Intn(100000))
 	claims := jwt.MapClaims{
 		"access_key": accessKey,
@@ -39,7 +39,7 @@ func GenerateJWT(accessKey string, secretKey string, params map[string]string) (
 
 // MakeQueryHash : Helper (쿼리 스트링 해시가 필요한 경우, GenerateJWT 내에서 처리하지만
 // 만약 수동으로 해시를 만들거나 파라미터 구조를 다룰 일이 있을 때 참조)
-func MakeQueryHash(params map[string]string) string {
+func MakeQueryHash(params map[string]interface{}) string {
 	if len(params) == 0 {
 		return ""
 	}

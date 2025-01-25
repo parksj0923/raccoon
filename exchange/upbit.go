@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/url"
 	"raccoon/utils/collection"
 	"raccoon/utils/resty"
 	"strconv"
@@ -23,15 +22,12 @@ import (
 const (
 	upbitBaseREST  = "https://api.upbit.com"
 	upbitBaseWS    = "wss://api.upbit.com/websocket/v1"
+	maxWSRetries   = 2
 	upbitPrivateWS = "wss://api.upbit.com/websocket/v1/private"
 	RandomWsUuid   = "0a9b8f1e-0dd9-4a59-adf8-0b7c10008943"
 	Candle1s       = "candle.1s"
 
-	Ticker    = "ticker"
-	Trade     = "trade"
-	OrderBook = "orderbook"
-	MyOrder   = "myOrder"
-	MyAsset   = "myAsset"
+	CandlePageLimit = 200
 )
 
 type Upbit struct {
@@ -48,44 +44,29 @@ type Upbit struct {
 	wsRunning bool
 	wsMtx     sync.Mutex
 
-	// HeikinAshi, MetadataFetchers
-	HeikinAshi       bool
-	MetadataFetchers []MetadataFetchers
-
-	// 실시간 봉(Candle) 전송 채널 + 에러 채널 + 로직 제어
 	assetsInfo map[string]model.AssetInfo
-	candleCh   chan model.Candle
-	errCh      chan error
 
-	// Upbit에서 실시간 'candle.1s'을 받고, 1분봉으로 합성
 	aggregatorMap map[string]*CandleAggregator
 }
 
 // CandleAggregator : 특정 pair(예: KRW-BTC)에 대한 실시간 봉 생성기
-// 1초봉들(WS) 누적 → 1분마다 종가 확정
+// 1초봉들(WS) 누적 → 원하는 period 에 맞게 합성
 type CandleAggregator struct {
-	pair       string
-	buffer     []model.Candle
-	currentMin time.Time
-}
+	pair     string
+	period   string
+	duration time.Duration
 
-// MetadataFetchers, UpbitOption
-type MetadataFetchers func(pair string, t time.Time) (string, float64)
-type UpbitOption func(*Upbit)
+	//1초당 들어오는 candle을 임시저장, 매초를 key로 잡아 중복데이터지만 다른시간인경우 override
+	buffer map[time.Time]model.Candle
+	//현재 집계중인 시간 구간의 시작 시각을 저장
+	currentKey time.Time
 
-func WithUpbitHeikinAshiCandle() UpbitOption {
-	return func(u *Upbit) {
-		u.HeikinAshi = true
-	}
-}
-func WithMetadataFetcher(fetcher MetadataFetchers) UpbitOption {
-	return func(u *Upbit) {
-		u.MetadataFetchers = append(u.MetadataFetchers, fetcher)
-	}
+	candleCh chan model.Candle
+	errCh    chan error
 }
 
 // NewUpbit : Upbit 객체 생성
-func NewUpbit(apiKey, secretKey string, pairs []string, opts ...UpbitOption) (*Upbit, error) {
+func NewUpbit(apiKey, secretKey string, pairs []string) (*Upbit, error) {
 	//pair => "KRW-BTC"
 	ctx, cancel := context.WithCancel(context.Background())
 	restyClient := resty.NewDefaultRestyClient(true, 10*time.Second)
@@ -95,12 +76,7 @@ func NewUpbit(apiKey, secretKey string, pairs []string, opts ...UpbitOption) (*U
 		cancelFunc:    cancel,
 		apiKey:        apiKey,
 		secretKey:     secretKey,
-		candleCh:      make(chan model.Candle),
-		errCh:         make(chan error),
 		aggregatorMap: make(map[string]*CandleAggregator),
-	}
-	for _, opt := range opts {
-		opt(up)
 	}
 	log.Info("[SETUP] Using Upbit exchange with pre-fetched pairs")
 	for _, pair := range pairs {
@@ -172,7 +148,7 @@ func (u *Upbit) Position(pair string) (asset, quote float64, err error) {
 }
 
 func (u *Upbit) Order(pair string, uuidOrIdentifier string, isIdentifier bool) (model.Order, error) {
-	params := map[string]string{}
+	params := map[string]interface{}{}
 	if isIdentifier {
 		params["identifier"] = uuidOrIdentifier
 	} else {
@@ -191,10 +167,10 @@ func (u *Upbit) Order(pair string, uuidOrIdentifier string, isIdentifier bool) (
 }
 
 func (u *Upbit) OpenOrders(pair string, limit int) ([]model.Order, error) {
-	params := map[string]string{
+	params := map[string]interface{}{
 		"market":   pair,
 		"states[]": "wait",
-		"limit":    strconv.Itoa(limit),
+		"limit":    limit,
 		"order_by": "desc",
 	}
 	body, err := u.requestUpbitGET(u.ctx, "/v1/orders/open", params)
@@ -217,7 +193,7 @@ func (u *Upbit) ClosedOrders(pair string, limit int) ([]model.Order, error) {
 func (u *Upbit) CreateOrderLimit(side model.SideType, pair string,
 	quantity float64, limit float64, tif ...model.TimeInForceType) (model.Order, error) {
 	// Upbit: ord_type=limit, side=(bid|ask), price=limit, volume=quantity, tif(optional)=(ioc|fok)
-	params := map[string]string{
+	params := map[string]interface{}{
 		"market":   pair,
 		"side":     string(side),
 		"ord_type": string(model.OrderTypeLimit),
@@ -242,7 +218,7 @@ func (u *Upbit) CreateOrderMarket(side model.SideType, pair string, quantity flo
 	// Upbit 시장가 매수 => ord_type="price", side="bid", quantity = price=금액, volume=""
 	// Upbit 시장가 매도 => ord_type="market", side="ask", quantity = volume=수량, price=""
 	if side == model.SideTypeBuy {
-		params := map[string]string{
+		params := map[string]interface{}{
 			"market":   pair,
 			"side":     string(side),
 			"ord_type": string(model.OrderTypePrice),
@@ -258,7 +234,7 @@ func (u *Upbit) CreateOrderMarket(side model.SideType, pair string, quantity flo
 		}
 		return convertOrderToModelOrder(resp, pair), nil
 	} else {
-		params := map[string]string{
+		params := map[string]interface{}{
 			"market":   pair,
 			"side":     string(side),
 			"ord_type": string(model.OrderTypeMarket),
@@ -287,7 +263,7 @@ func (u *Upbit) CreateOrderBest(side model.SideType, pair string, quantity float
 		return model.Order{}, fmt.Errorf("tif must be exist and exactly one parameter")
 	}
 
-	params := map[string]string{
+	params := map[string]interface{}{
 		"market":        pair,
 		"side":          string(side),
 		"ord_type":      string(model.OrderTypeBest),
@@ -311,7 +287,7 @@ func (u *Upbit) CreateOrderBest(side model.SideType, pair string, quantity float
 }
 
 func (u *Upbit) Cancel(order model.Order, isIdentifier bool) error {
-	params := map[string]string{}
+	params := map[string]interface{}{}
 	if isIdentifier {
 		params["identifier"] = order.ExchangeID
 	} else {
@@ -343,17 +319,16 @@ func (u *Upbit) AssetsInfo(pair string) model.AssetInfo {
 }
 
 // LastQuote : Ticker로 현재가
-func (u *Upbit) LastQuote(ctx context.Context, pair string) (float64, error) {
+func (u *Upbit) LastQuote(pair string) (float64, error) {
 	// GET /v1/ticker?markets=KRW-BTC
-	q := url.Values{}
-	q.Set("markets", pair)
-	body, err := utils.SimpleGet(ctx, upbitBaseREST+"/v1/ticker?"+q.Encode())
+	params := map[string]interface{}{}
+	params["market"] = pair
+	body, err := u.requestUpbitGET(u.ctx, "/v1/ticker", params)
+
 	if err != nil {
 		return 0, err
 	}
-	var res []struct {
-		TradePrice float64 `json:"trade_price"`
-	}
+	var res []model.CurrentTicker
 	if err := json.Unmarshal(body, &res); err != nil {
 		return 0, err
 	}
@@ -364,149 +339,165 @@ func (u *Upbit) LastQuote(ctx context.Context, pair string) (float64, error) {
 }
 
 // CandlesByLimit : (REST) /v1/candles/...
-func (u *Upbit) CandlesByLimit(ctx context.Context, pair, period string, limit int) ([]model.Candle, error) {
-	// TODO: upbitCandles, reverse, heikinAshi...
-	return nil, errors.New("not implemented: CandlesByLimit upbit REST")
+func (u *Upbit) CandlesByLimit(pair, period string, limit int) ([]model.Candle, error) {
+	if limit > 200 {
+		return nil, fmt.Errorf("candles limit exceeds 200")
+	}
+	// 1) period 파싱 -> Upbit candles endpoint
+	endpoint, err := mapPeriodToCandleEndpoint(period)
+	if err != nil {
+		return nil, err
+	}
+
+	params := map[string]interface{}{
+		"market": pair,
+		"count":  limit,
+	}
+	body, err := u.requestUpbitGET(u.ctx, "/v1/candles/"+endpoint, params)
+	if err != nil {
+		return nil, err
+	}
+
+	var raw []model.QuotationCandle
+	if e := json.Unmarshal(body, &raw); e != nil {
+		return nil, e
+	}
+	if len(raw) == 0 {
+		return nil, nil
+	}
+
+	candles := make([]model.Candle, 0, len(raw))
+	for _, r := range raw {
+		t, _ := time.Parse("2006-01-02T15:04:05", r.CandleDateTimeKST)
+		c := model.Candle{
+			Pair:      pair,
+			Time:      t,
+			UpdatedAt: t,
+			Open:      r.OpeningPrice,
+			High:      r.HighPrice,
+			Low:       r.LowPrice,
+			Close:     r.TradePrice,
+			Volume:    r.CandleAccTradeVolume,
+			Complete:  true, // 이미 완료된 봉
+			Metadata:  map[string]float64{},
+		}
+		candles = append(candles, c)
+	}
+	// sorting ascending
+	collection.Sort(candles, func(a, b model.Candle) bool {
+		return a.Time.Unix() < b.Time.Unix()
+	})
+	return candles, nil
 }
 
 // CandlesByPeriod : (REST) start~end
-func (u *Upbit) CandlesByPeriod(ctx context.Context, pair, period string,
-	start, end time.Time) ([]model.Candle, error) {
-	return nil, errors.New("not implemented: CandlesByPeriod upbit REST")
+func (u *Upbit) CandlesByPeriod(pair, period string, start, end time.Time) ([]model.Candle, error) {
+	endpoint, err := mapPeriodToCandleEndpoint(period)
+	if err != nil {
+		return nil, err
+	}
+
+	var allCandles []model.Candle
+
+	// KST Location
+	loc, err := time.LoadLocation("Asia/Seoul")
+	if err != nil {
+		return nil, fmt.Errorf("fail to load KST loc: %w", err)
+	}
+
+	toTime := end.In(loc)
+
+	for {
+		toStr := toTime.Format("2006-01-02 15:04:05") + "+09:00"
+		params := map[string]interface{}{
+			"market": pair,
+			"count":  CandlePageLimit,
+			"to":     toStr,
+		}
+
+		body, err := u.requestUpbitGET(u.ctx, endpoint, params)
+		if err != nil {
+			return nil, err
+		}
+		var raw []model.QuotationCandle
+		if e := json.Unmarshal(body, &raw); e != nil {
+			return nil, e
+		}
+		if len(raw) == 0 {
+			break
+		}
+
+		for _, r := range raw {
+			t, _ := time.Parse("2006-01-02T15:04:05", r.CandleDateTimeKST)
+			c := model.Candle{
+				Pair:      pair,
+				Time:      t,
+				UpdatedAt: t,
+				Open:      r.OpeningPrice,
+				High:      r.HighPrice,
+				Low:       r.LowPrice,
+				Close:     r.TradePrice,
+				Volume:    r.CandleAccTradeVolume,
+				Complete:  true,
+				Metadata:  map[string]float64{},
+			}
+			allCandles = append(allCandles, c)
+		}
+
+		// (f) 가장 오래된 캔들(=raw 마지막)에 적힌 시간을 구해, toTime = 그 시간보다 1초 더 과거
+		// raw는 최신->과거 => 가장 오래된 것은 raw[len(raw)-1]
+		oldest := raw[len(raw)-1]
+		oldestTime, _ := time.Parse("2006-01-02T15:04:05", oldest.CandleDateTimeKST)
+
+		if !oldestTime.After(start) {
+			break
+		}
+		toTime = oldestTime
+	}
+
+	collection.Sort(allCandles, func(a, b model.Candle) bool {
+		return a.Time.Unix() < b.Time.Unix()
+	})
+
+	// start~end 범위 필터
+	var result []model.Candle
+	for _, c := range allCandles {
+		if c.Time.Equal(start) || c.Time.Equal(end) ||
+			(c.Time.After(start) && c.Time.Before(end)) {
+			result = append(result, c)
+		}
+	}
+	return result, nil
 }
 
 // CandlesSubscription : WebSocket 실시간 캔들
-//
-// 1) Upbit는 "type": "candle.1s"로 요청하면 "1초봉" 실시간 데이터 받을 수 있음
-// 2) ninjabot "OnCandle"로는 1분봉,5분봉 등 원하는 TF가 필요
-// -> 여기서는 예시로 candle.1s를 받은 뒤, aggregator에서 1분 단위 봉으로 변환해 전달
-func (u *Upbit) CandlesSubscription(ctx context.Context, pair, timeframe string) (chan model.Candle, chan error) {
-	// 우선 aggregatorMap에 pair용 aggregator 생성
-	u.aggregatorMap[pair] = &CandleAggregator{
-		pair: pair,
+func (u *Upbit) CandlesSubscription(pair, period string) (chan model.Candle, chan error) {
+	key := pair + "_" + period
+	if agg, ok := u.aggregatorMap[key]; !ok {
+		return agg.candleCh, agg.errCh
+	}
+	dur, err := parseTimeframeToDuration(period)
+	if err != nil {
+		//TODO error 처리를 어떻게 제대로 할지
+		cch := make(chan model.Candle)
+		ech := make(chan error, 1)
+		ech <- fmt.Errorf("unsupported timeframe: %s", period)
+		close(ech)
+		return cch, ech
 	}
 
-	// goroutine에서 ws 연결
-	// timeframe=="1m"라면 candle.1s로 받아서 1분봉 합성
-	// 실제로 "candle.5s" 같은 건 문서상 없음. "candle.1s"만 공식
+	agg := &CandleAggregator{
+		pair:     pair,
+		period:   period,
+		duration: dur,
+		buffer:   make(map[time.Time]model.Candle),
+		candleCh: make(chan model.Candle),
+		errCh:    make(chan error),
+	}
+	u.aggregatorMap[key] = agg
+
 	go u.wsRunIfNeeded()
-	return u.candleCh, u.errCh
-}
-
-// -----------------------------------------------------------------------------
-// 실시간 캔들 Aggregator: "1초봉" -> "1분봉"
-// -----------------------------------------------------------------------------
-
-// handleUpbitCandle1s : upbit "candle.1s" 메시지를 받아 model.Candle로 변환
-// 그리고 aggregator에 push
-func (u *Upbit) handleUpbitCandle1s(msg []byte) {
-	var raw struct {
-		Type              string  `json:"type"` // candle.1s
-		Code              string  `json:"code"`
-		CandleDateTimeUTC string  `json:"candle_date_time_utc"`
-		OpeningPrice      float64 `json:"opening_price"`
-		HighPrice         float64 `json:"high_price"`
-		LowPrice          float64 `json:"low_price"`
-		TradePrice        float64 `json:"trade_price"`
-		CandleAccVolume   float64 `json:"candle_acc_trade_volume"`
-		CandleAccPrice    float64 `json:"candle_acc_trade_price"`
-		Timestamp         int64   `json:"timestamp"`
-		StreamType        string  `json:"stream_type"`
-	}
-	if err := json.Unmarshal(msg, &raw); err != nil {
-		log.Errorf("handleUpbitCandle1s unmarshal: %v", err)
-		return
-	}
-	t, _ := time.Parse("2006-01-02T15:04:05", raw.CandleDateTimeUTC)
-
-	c := model.Candle{
-		Pair:      raw.Code,
-		Time:      t,
-		UpdatedAt: t,
-		Open:      raw.OpeningPrice,
-		High:      raw.HighPrice,
-		Low:       raw.LowPrice,
-		Close:     raw.TradePrice,
-		Volume:    raw.CandleAccVolume,
-		Complete:  true, // 1초봉은 이미 완료 상태
-		Metadata:  map[string]float64{},
-	}
-	// aggregator에 push
-	agg, ok := u.aggregatorMap[raw.Code]
-	if ok {
-		newCandle, finished := agg.Push1sCandle(c)
-		if finished {
-			// 완성된 1분봉
-			if u.HeikinAshi {
-				newCandle = newCandle.ToHeikinAshi(nil)
-			}
-			for _, fetcher := range u.MetadataFetchers {
-				k, v := fetcher(newCandle.Pair, newCandle.Time)
-				newCandle.Metadata[k] = v
-			}
-			// 전달
-			u.candleCh <- newCandle
-		}
-	}
-}
-
-// Push1sCandle : 1초봉을 누적하여 1분봉이 완성됐는지 체크
-// 간단히 “timestamp의 분이 바뀔 때” 봉 완성 -> 새 봉
-func (agg *CandleAggregator) Push1sCandle(c model.Candle) (model.Candle, bool) {
-	if agg.currentMin.IsZero() {
-		// 첫 봉
-		agg.currentMin = c.Time.Truncate(time.Minute)
-	}
-	thisMinute := c.Time.Truncate(time.Minute)
-	if thisMinute.After(agg.currentMin) {
-		// 이전 분봉 완료
-		finishedCandle := agg.aggregateBuffer()
-		// 다음 분으로 넘어감
-		agg.buffer = []model.Candle{}
-		agg.currentMin = thisMinute
-		// 새 1초봉을 buffer에 추가
-		agg.buffer = append(agg.buffer, c)
-		return finishedCandle, true
-	} else {
-		// 같은 분이면 buffer에 쌓기
-		agg.buffer = append(agg.buffer, c)
-		return model.Candle{}, false
-	}
-}
-
-// aggregateBuffer : agg.buffer 내 모든 1초봉을 합쳐서 1분봉 생성
-func (agg *CandleAggregator) aggregateBuffer() model.Candle {
-	// 시간이 같은 애들(예: 1분간 60개 최대) => min/avg ...
-	if len(agg.buffer) == 0 {
-		// 빈 버퍼라면 dummy
-		return model.Candle{}
-	}
-	first := agg.buffer[0]
-	c := model.Candle{
-		Pair:      first.Pair,
-		Time:      agg.currentMin, // 1분봉 시각
-		UpdatedAt: agg.currentMin,
-		Open:      first.Open,
-		High:      first.High,
-		Low:       first.Low,
-		Close:     first.Close,
-		Volume:    0,
-		Complete:  true,
-		Metadata:  make(map[string]float64),
-	}
-	for i, sub := range agg.buffer {
-		if i > 0 {
-			if sub.High > c.High {
-				c.High = sub.High
-			}
-			if sub.Low < c.Low {
-				c.Low = sub.Low
-			}
-		}
-		c.Close = sub.Close
-		c.Volume += sub.Volume
-	}
-	return c
+	return agg.candleCh, agg.errCh
 }
 
 // -----------------------------------------------------------------------------
@@ -531,83 +522,235 @@ func (u *Upbit) runWebsocket() {
 		u.wsMtx.Unlock()
 	}()
 
+reconnect:
 	// 연결
 	conn, _, err := websocket.DefaultDialer.Dial(upbitBaseWS, nil)
 	if err != nil {
-		u.errCh <- fmt.Errorf("websocket dial fail: %w", err)
+		u.broadcastErr(err)
+		log.Errorf("Upbit ws dial fail: %v", err)
 		return
 	}
 	u.wsConn = conn
 	log.Info("[UpbitWS] connected")
 
-	// example: candle.1s 구독 (pair list from aggregatorMap)
+	pairsSet := make(map[string]bool)
+	for k := range u.aggregatorMap {
+		// k = "KRW-BTC_1m" => "KRW-BTC"
+		splits := strings.Split(k, "_")
+		if len(splits) < 2 {
+			continue
+		}
+		p := splits[0]
+		pairsSet[p] = true
+	}
 	var codes []string
-	for p := range u.aggregatorMap {
-		// 반드시 대문자 "KRW-BTC"
+	for p := range pairsSet {
 		codes = append(codes, strings.ToUpper(p))
 	}
 
 	subMsg := []interface{}{
-		map[string]string{"ticket": "ninjabot-upbit-candle"},
+		map[string]string{"ticket": RandomWsUuid},
 		map[string]interface{}{
-			"type":  "candle.1s",
+			"type":  Candle1s,
 			"codes": codes,
 		},
 		map[string]string{"format": "DEFAULT"},
 	}
-	if err := conn.WriteJSON(subMsg); err != nil {
-		u.errCh <- fmt.Errorf("websocket write subscription fail: %w", err)
+	if e := conn.WriteJSON(subMsg); e != nil {
+		u.broadcastErr(e)
+		log.Errorf("[UpbitWS] write sub fail: %v", e)
+		conn.Close()
 		return
 	}
 
+	var retries int
 	// read loop
 	for {
 		select {
 		case <-u.ctx.Done():
-			log.Info("[UpbitWS] context canceled, closing ws")
+			log.Info("[UpbitWS] context done => close ws")
 			conn.Close()
 			return
 		default:
 			_, msg, err := conn.ReadMessage()
 			if err != nil {
-				u.errCh <- fmt.Errorf("websocket read fail: %w", err)
-				return
+				log.Errorf("[UpbitWS] read err: %v", err)
+				if retries < maxWSRetries {
+					retries++
+					log.Warnf("[UpbitWS] retrying... attempt=%d", retries)
+					time.Sleep(1 * time.Second)
+					conn.Close()
+					goto reconnect
+				} else {
+					u.broadcastErr(fmt.Errorf("read fail after %d retries: %w", maxWSRetries, err))
+					conn.Close()
+					return
+				}
 			}
-			// parse candle.1s
-			// 응답이 "type": "candle.1s" 인 경우만 처리
-			var raw struct {
-				Type  string `json:"type"`
-				Error struct {
-					Name    string `json:"name"`
-					Message string `json:"message"`
-				} `json:"error"`
-			}
-			if e := json.Unmarshal(msg, &raw); e != nil {
-				log.Warnf("[UpbitWS] unmarshal raw fail: %v", e)
-				continue
-			}
-			if raw.Error.Name != "" {
-				// Upbit WS error
-				u.errCh <- fmt.Errorf("UpbitWS error: %s - %s", raw.Error.Name, raw.Error.Message)
-				continue
-			}
-			if raw.Type == "candle.1s" {
-				u.handleUpbitCandle1s(msg)
-			} else {
-				// 다른 타입은 무시 (ticker, trade, etc.)
+			u.handleCandle1s(msg)
+		}
+	}
+}
+
+func (u *Upbit) handleCandle1s(msg []byte) {
+	var base model.WSCandleBase
+	if e := json.Unmarshal(msg, &base); e != nil {
+		log.Warnf("ws base parse fail: %v", e)
+		return
+	}
+	if base.Error.Name != "" {
+		errMsg := fmt.Errorf("[UpbitWS] candle.1s error: %s - %s", base.Error.Name, base.Error.Message)
+		log.Errorf(errMsg.Error())
+		u.broadcastErr(errMsg)
+		return
+	}
+	if base.Type != Candle1s {
+		return
+	}
+
+	var raw model.WSCandle
+	if e := json.Unmarshal(msg, &raw); e != nil {
+		log.Warnf("candle.1s parse fail: %v", e)
+		return
+	}
+
+	t, _ := time.Parse("2006-01-02T15:04:05", raw.CandleDateTimeKst)
+	candle := model.Candle{
+		Pair:      raw.Code,
+		Time:      t,
+		UpdatedAt: t,
+		Open:      raw.OpeningPrice,
+		High:      raw.HighPrice,
+		Low:       raw.LowPrice,
+		Close:     raw.TradePrice,
+		Volume:    raw.CandleAccTradeVolume,
+		Complete:  true,
+		Metadata:  map[string]float64{},
+	}
+
+	// aggregatorMap => push
+	for k, agg := range u.aggregatorMap {
+		parts := strings.Split(k, "_")
+		if len(parts) < 2 {
+			continue
+		}
+		if strings.EqualFold(parts[0], raw.Code) {
+			fin, done := agg.push1sCandle(candle)
+			if done && fin.Volume > 0 {
+				agg.candleCh <- fin
 			}
 		}
 	}
 }
 
+// push1sCandle : 1초봉 -> (완성봉, bool)
+func (agg *CandleAggregator) push1sCandle(c model.Candle) (model.Candle, bool) {
+	// "1s" => 그냥 반환
+	if agg.duration == 0 {
+		agg.buffer[c.Time] = c
+		return c, true
+	}
+
+	// 매초 buffer에 저장하고, 동일한 pair의 같은 시간의 데이터가 들어오는것은 최신데이터로 override
+	agg.buffer[c.Time] = c
+
+	thisKey := c.Time.Truncate(agg.duration)
+	if agg.currentKey.IsZero() {
+		agg.currentKey = thisKey
+	}
+	if thisKey.After(agg.currentKey) {
+		// finish old interval
+		fin := agg.aggregateBuffer(agg.currentKey)
+		// remove old seconds
+		agg.removeOldSeconds(agg.currentKey)
+		agg.currentKey = thisKey
+		return fin, true
+	}
+	return model.Candle{}, false
+}
+
+// removeOldSeconds : remove all second in the old interval
+func (agg *CandleAggregator) removeOldSeconds(minKey time.Time) {
+	start := minKey
+	end := minKey.Add(agg.duration)
+
+	for sec := range agg.buffer {
+
+		if (sec.After(start) || sec.Equal(start)) && sec.Before(end) {
+			delete(agg.buffer, sec)
+		}
+	}
+}
+
+// aggregateBuffer : gather all seconds in [minKey, minKey+duration)
+func (agg *CandleAggregator) aggregateBuffer(minKey time.Time) model.Candle {
+	start := minKey
+	end := minKey.Add(agg.duration)
+
+	var secs []model.Candle
+	for _, sc := range agg.buffer {
+		if sc.Time.After(start) && sc.Time.Before(end) {
+			secs = append(secs, sc)
+		}
+	}
+	if len(secs) == 0 {
+		return model.Candle{}
+	}
+	// sort by sc.Time
+	collection.Sort(secs, func(i, j model.Candle) bool {
+		return i.Time.Before(j.Time)
+	})
+
+	first := secs[0]
+	out := model.Candle{
+		Pair:      first.Pair,
+		Time:      minKey,
+		UpdatedAt: minKey,
+		Open:      first.Open,
+		High:      first.High,
+		Low:       first.Low,
+		Close:     first.Close,
+		Complete:  true,
+		Metadata:  make(map[string]float64),
+	}
+	for i, sc := range secs {
+		if i > 0 {
+			if sc.High > out.High {
+				out.High = sc.High
+			}
+			if sc.Low < out.Low {
+				out.Low = sc.Low
+			}
+		}
+		out.Close = sc.Close
+		out.Volume += sc.Volume
+	}
+	return out
+}
+
+func (u *Upbit) broadcastErr(err error) {
+	for _, agg := range u.aggregatorMap {
+		go func(a *CandleAggregator) {
+			select {
+			case agg.errCh <- err:
+			default:
+			}
+		}(agg)
+	}
+}
+
 func (u *Upbit) Stop() {
-	// ninjabot에는 별도로 Stop()이 없을 수도 있으나, 필요 시 제공
 	u.cancelFunc()
+	u.wsMtx.Lock()
 	if u.wsConn != nil {
 		u.wsConn.Close()
 	}
-	close(u.candleCh)
-	close(u.errCh)
+	u.wsMtx.Unlock()
+
+	for _, agg := range u.aggregatorMap {
+		close(agg.candleCh)
+		close(agg.errCh)
+	}
 	log.Info("[Upbit] stopped")
 }
 
@@ -682,7 +825,7 @@ func convertMultiOrdersToModelOrders(orders []model.OrdersResponse, pair string)
 }
 
 // requestUpbitGET : Upbit JWT + GET
-func (u *Upbit) requestUpbitGET(ctx context.Context, path string, params map[string]string) ([]byte, error) {
+func (u *Upbit) requestUpbitGET(ctx context.Context, path string, params map[string]interface{}) ([]byte, error) {
 	full := upbitBaseREST + path
 	token, err := auth.GenerateJWT(u.apiKey, u.secretKey, params)
 	if err != nil {
@@ -712,7 +855,7 @@ func (u *Upbit) requestUpbitGET(ctx context.Context, path string, params map[str
 }
 
 // requestUpbitPOST : Upbit JWT + POST
-func (u *Upbit) requestUpbitPOST(ctx context.Context, path string, params map[string]string) ([]byte, error) {
+func (u *Upbit) requestUpbitPOST(ctx context.Context, path string, params map[string]interface{}) ([]byte, error) {
 	full := upbitBaseREST + path
 	token, err := auth.GenerateJWT(u.apiKey, u.secretKey, params)
 	if err != nil {
@@ -738,7 +881,7 @@ func (u *Upbit) requestUpbitPOST(ctx context.Context, path string, params map[st
 }
 
 // requestUpbitDELETE
-func (u *Upbit) requestUpbitDELETE(ctx context.Context, path string, params map[string]string) ([]byte, error) {
+func (u *Upbit) requestUpbitDELETE(ctx context.Context, path string, params map[string]interface{}) ([]byte, error) {
 	full := upbitBaseREST + path
 
 	token, err := auth.GenerateJWT(u.apiKey, u.secretKey, params)
@@ -773,7 +916,7 @@ func floatToString(f float64) string {
 }
 
 func (u *Upbit) fetchChance(pair string) (*model.OrderChanceResponse, error) {
-	params := map[string]string{
+	params := map[string]interface{}{
 		"market": pair,
 	}
 	body, err := u.requestUpbitGET(u.ctx, "/v1/orders/chance", params)
@@ -820,4 +963,68 @@ func convertChanceToAssetInfo(ch *model.OrderChanceResponse) (model.AssetInfo, e
 		QuotePrecision:     2,
 		BaseAssetPrecision: 8,
 	}, nil
+}
+
+func mapPeriodToCandleEndpoint(period string) (string, error) {
+	switch period {
+	case "1s":
+		return "seconds", nil
+	case "1m":
+		return "minutes/1", nil
+	case "3m":
+		return "minutes/3", nil
+	case "5m":
+		return "minutes/5", nil
+	case "10m":
+		return "minutes/10", nil
+	case "15m":
+		return "minutes/15", nil
+	case "30m":
+		return "minutes/30", nil
+	case "60m", "1h":
+		return "minutes/60", nil
+	case "240m":
+		return "minutes/240", nil
+	case "1d":
+		return "days", nil
+	case "1w":
+		return "weeks", nil
+	case "1M":
+		return "months", nil
+	case "1y":
+		return "years", nil
+	default:
+		return "", fmt.Errorf("unsupported upbit period: %s", period)
+	}
+}
+
+func parseTimeframeToDuration(tf string) (time.Duration, error) {
+	switch tf {
+	case "1s":
+		return 0, nil
+	case "1m":
+		return time.Minute, nil
+	case "3m":
+		return 3 * time.Minute, nil
+	case "5m":
+		return 5 * time.Minute, nil
+	case "10":
+		return 10 * time.Second, nil
+	case "15m":
+		return 15 * time.Minute, nil
+	case "30m":
+		return 30 * time.Minute, nil
+	case "60m", "1h":
+		return time.Hour, nil
+	case "1d":
+		return 24 * time.Hour, nil
+	case "1w":
+		return 7 * 24 * time.Hour, nil
+	case "1M":
+		return 30 * 24 * time.Hour, nil
+	case "1y":
+		return 365 * 24 * time.Hour, nil
+	default:
+		return 0, fmt.Errorf("unsupported timeframe: %s", tf)
+	}
 }

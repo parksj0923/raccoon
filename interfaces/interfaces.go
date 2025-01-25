@@ -1,10 +1,13 @@
 package interfaces
 
-import "raccoon/model"
+import (
+	"raccoon/model"
+	"time"
+)
 
 type Exchange interface {
 	Broker
-	Feeder
+	DataFeeder
 }
 
 type Broker interface {
@@ -19,6 +22,12 @@ type Broker interface {
 	Cancel(order model.Order, isIdentifier bool) error
 }
 
-type Feeder interface{}
+type DataFeeder interface {
+	AssetsInfo(pair string) model.AssetInfo
+	LastQuote(pair string) (float64, error)
+	CandlesByLimit(pair, period string, limit int) ([]model.Candle, error)
+	CandlesByPeriod(pair, period string, start, end time.Time) ([]model.Candle, error)
+	CandlesSubscription(pair, timeframe string) (chan model.Candle, chan error)
+}
 
 type Notifier interface{}
