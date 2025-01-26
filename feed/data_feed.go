@@ -1,6 +1,7 @@
 package feed
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"github.com/StudioSol/set"
@@ -24,6 +25,8 @@ type DataFeedSubscription struct {
 	DataFeeds               map[string]*DataFeed      // key=(pair--timeframe), value=channel pair
 	SubscriptionsByDataFeed map[string][]Subscription // key=(pair--timeframe), value=subscriber list
 
+	ctx    context.Context
+	cancel context.CancelFunc
 }
 
 type DataFeed struct {
@@ -41,11 +44,14 @@ type DataFeedConsumer func(model.Candle)
 // 전체적인 흐름 : New -> Subscribe -> Preload -> Start(Connect)
 
 func NewDataFeed(exchange interfaces.Exchange) *DataFeedSubscription {
+	ctx, cancel := context.WithCancel(context.Background())
 	return &DataFeedSubscription{
 		exchange:                exchange,
 		Feeds:                   set.NewLinkedHashSetString(),
 		DataFeeds:               make(map[string]*DataFeed),
 		SubscriptionsByDataFeed: make(map[string][]Subscription),
+		ctx:                     ctx,
+		cancel:                  cancel,
 	}
 }
 
@@ -95,6 +101,9 @@ func (d *DataFeedSubscription) Start(loadSync bool) {
 
 			for {
 				select {
+				case <-d.ctx.Done():
+					// 취소 신호를 받으면 종료
+					return
 				case candle, ok := <-feed.Data:
 					if !ok {
 						// channel 닫힘 => 종료
@@ -111,8 +120,10 @@ func (d *DataFeedSubscription) Start(loadSync bool) {
 				case err := <-feed.Err:
 					if err != nil {
 						log.Error("dataFeedSubscription/start: ", err)
-						// 에러 상황 => 계속 진행하거나, 필요 시 종료
-						// 여기서는 단순 로깅
+						//TODO 에러 상황 => 계속 진행하거나, 필요 시 종료
+						for _, subscription := range d.SubscriptionsByDataFeed[key] {
+							subscription.consumer(model.Candle{}) // 빈 캔들로 에러 표시 (혹은 별도의 에러 전달 방식)
+						}
 					}
 				}
 			}
@@ -141,6 +152,11 @@ func (d *DataFeedSubscription) Connect() {
 			Err:  cErr,
 		}
 	}
+}
+
+// Stop : 모든 고루틴(구독) 종료
+func (d *DataFeedSubscription) Stop() {
+	d.cancel() // 모든 고루틴에게 취소 신호 전송
 }
 
 // feedKey : (pair, period) => "pair_period"
