@@ -8,12 +8,13 @@ import (
 )
 
 var (
-	apiKey    = os.Getenv("UPBIT_API_KEY")
-	secretKey = os.Getenv("UPBIT_API_SECRET_KEY")
+	apiKey    = os.Getenv("UPBIT_ACCESS_KEY")
+	secretKey = os.Getenv("UPBIT_SECRET_KEY")
 	pairs     = []string{"KRW-BTC"}
 )
 
 func Test_NewUpBit(t *testing.T) {
+	fmt.Println(apiKey, secretKey, pairs)
 	upbit, err := exchange.NewUpbit(apiKey, secretKey, pairs)
 	if err != nil {
 		t.Error(err)

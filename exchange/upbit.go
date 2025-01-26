@@ -76,6 +76,7 @@ func NewUpbit(apiKey, secretKey string, pairs []string) (*Upbit, error) {
 		cancelFunc:    cancel,
 		apiKey:        apiKey,
 		secretKey:     secretKey,
+		assetsInfo:    make(map[string]model.AssetInfo),
 		aggregatorMap: make(map[string]*CandleAggregator),
 	}
 	log.Info("[SETUP] Using Upbit exchange with pre-fetched pairs")
@@ -340,7 +341,7 @@ func (u *Upbit) LastQuote(pair string) (float64, error) {
 
 // CandlesByLimit : (REST) /v1/candles/...
 func (u *Upbit) CandlesByLimit(pair, period string, limit int) ([]model.Candle, error) {
-	if limit > 200 {
+	if limit > CandlePageLimit {
 		return nil, fmt.Errorf("candles limit exceeds 200")
 	}
 	// 1) period 파싱 -> Upbit candles endpoint
@@ -522,7 +523,7 @@ func (u *Upbit) runWebsocket() {
 		u.wsMtx.Unlock()
 	}()
 
-reconnect:
+connect:
 	// 연결
 	conn, _, err := websocket.DefaultDialer.Dial(upbitBaseWS, nil)
 	if err != nil {
@@ -580,7 +581,7 @@ reconnect:
 					log.Warnf("[UpbitWS] retrying... attempt=%d", retries)
 					time.Sleep(1 * time.Second)
 					conn.Close()
-					goto reconnect
+					goto connect
 				} else {
 					u.broadcastErr(fmt.Errorf("read fail after %d retries: %w", maxWSRetries, err))
 					conn.Close()
@@ -847,7 +848,7 @@ func (u *Upbit) requestUpbitGET(ctx context.Context, path string, params map[str
 	if err != nil {
 		return nil, fmt.Errorf("API 호출 실패: %w", err)
 	}
-	if resp.StatusCode() != 201 {
+	if resp.StatusCode() != 200 {
 		return nil, fmt.Errorf("API 응답 오류: %d, %s", resp.StatusCode(), resp.String())
 	}
 
@@ -873,7 +874,7 @@ func (u *Upbit) requestUpbitPOST(ctx context.Context, path string, params map[st
 	if err != nil {
 		return nil, fmt.Errorf("API 호출 실패: %w", err)
 	}
-	if resp.StatusCode() != 201 {
+	if resp.StatusCode() != 200 {
 		return nil, fmt.Errorf("API 응답 오류: %d, %s", resp.StatusCode(), resp.String())
 	}
 
@@ -903,7 +904,7 @@ func (u *Upbit) requestUpbitDELETE(ctx context.Context, path string, params map[
 	if err != nil {
 		return nil, fmt.Errorf("API 호출 실패: %w", err)
 	}
-	if resp.StatusCode() != 201 {
+	if resp.StatusCode() != 200 {
 		return nil, fmt.Errorf("API 응답 오류: %d, %s", resp.StatusCode(), resp.String())
 	}
 
@@ -940,7 +941,7 @@ func convertChanceToAssetInfo(ch *model.OrderChanceResponse) (model.AssetInfo, e
 
 	// base="BTC", quote="KRW" 같은 식
 	base := ch.Market.Ask.Currency
-	quote := ch.Market.Ask.Currency
+	quote := ch.Market.Bid.Currency
 	var stepSize, tickSize float64
 	if quote == "KRW" {
 		tickSize = 0.1
