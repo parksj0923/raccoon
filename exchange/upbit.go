@@ -473,7 +473,7 @@ func (u *Upbit) CandlesByPeriod(pair, period string, start, end time.Time) ([]mo
 // CandlesSubscription : WebSocket 실시간 캔들
 func (u *Upbit) CandlesSubscription(pair, period string) (chan model.Candle, chan error) {
 	key := pair + "_" + period
-	if agg, ok := u.aggregatorMap[key]; !ok {
+	if agg, ok := u.aggregatorMap[key]; ok {
 		return agg.candleCh, agg.errCh
 	}
 	dur, err := parseTimeframeToDuration(period)
