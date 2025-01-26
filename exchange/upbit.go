@@ -30,6 +30,8 @@ const (
 	CandlePageLimit = 200
 )
 
+var KSTLocation, _ = time.LoadLocation("Asia/Seoul")
+
 type Upbit struct {
 	ctx        context.Context
 	cancelFunc context.CancelFunc
@@ -369,7 +371,7 @@ func (u *Upbit) CandlesByLimit(pair, period string, limit int) ([]model.Candle, 
 
 	candles := make([]model.Candle, 0, len(raw))
 	for _, r := range raw {
-		t, _ := time.Parse("2006-01-02T15:04:05", r.CandleDateTimeKST)
+		t, _ := time.ParseInLocation("2006-01-02T15:04:05", r.CandleDateTimeKST, KSTLocation)
 		c := model.Candle{
 			Pair:      pair,
 			Time:      t,
@@ -429,7 +431,7 @@ func (u *Upbit) CandlesByPeriod(pair, period string, start, end time.Time) ([]mo
 		}
 
 		for _, r := range raw {
-			t, _ := time.Parse("2006-01-02T15:04:05", r.CandleDateTimeKST)
+			t, _ := time.ParseInLocation("2006-01-02T15:04:05", r.CandleDateTimeKST, KSTLocation)
 			c := model.Candle{
 				Pair:      pair,
 				Time:      t,
@@ -448,7 +450,7 @@ func (u *Upbit) CandlesByPeriod(pair, period string, start, end time.Time) ([]mo
 		// (f) 가장 오래된 캔들(=raw 마지막)에 적힌 시간을 구해, toTime = 그 시간보다 1초 더 과거
 		// raw는 최신->과거 => 가장 오래된 것은 raw[len(raw)-1]
 		oldest := raw[len(raw)-1]
-		oldestTime, _ := time.Parse("2006-01-02T15:04:05", oldest.CandleDateTimeKST)
+		oldestTime, _ := time.ParseInLocation("2006-01-02T15:04:05", oldest.CandleDateTimeKST, KSTLocation)
 
 		if !oldestTime.After(start) {
 			break
@@ -615,7 +617,7 @@ func (u *Upbit) handleCandle1s(msg []byte) {
 		return
 	}
 
-	t, _ := time.Parse("2006-01-02T15:04:05", raw.CandleDateTimeKst)
+	t, _ := time.ParseInLocation("2006-01-02T15:04:05", raw.CandleDateTimeKst, KSTLocation)
 	candle := model.Candle{
 		Pair:      raw.Code,
 		Time:      t,
@@ -774,7 +776,7 @@ func convertOrderToModelOrder(o model.OrderResponse, pair string) model.Order {
 	var createdTime time.Time
 	if o.CreatedAt != "" {
 		// Upbit가 "2024-06-13T10:28:36+09:00" 형태이므로, time.RFC3339 파싱 가능
-		t, err := time.Parse(time.RFC3339, o.CreatedAt)
+		t, err := time.ParseInLocation(time.RFC3339, o.CreatedAt, KSTLocation)
 		if err == nil {
 			createdTime = t
 		} else {
@@ -802,7 +804,7 @@ func convertMultiOrdersToModelOrders(orders []model.OrdersResponse, pair string)
 		var createdTime time.Time
 		if o.CreatedAt != "" {
 			// Upbit가 "2024-06-13T10:28:36+09:00" 형태이므로, time.RFC3339 파싱 가능
-			t, err := time.Parse(time.RFC3339, o.CreatedAt)
+			t, err := time.ParseInLocation(time.RFC3339, o.CreatedAt, KSTLocation)
 			if err == nil {
 				createdTime = t
 			} else {

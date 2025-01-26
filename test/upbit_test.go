@@ -39,7 +39,7 @@ func Test_WsConnect(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	receivedChannel, errCh := upbit.CandlesSubscription(pairs[0], "1m")
+	receivedChannel, errCh := upbit.CandlesSubscription(pairs[0], "3m")
 	for {
 		select {
 		case err := <-errCh:
@@ -50,4 +50,13 @@ func Test_WsConnect(t *testing.T) {
 			fmt.Println(candle)
 		}
 	}
+}
+
+func Test_CandlesByLimit(t *testing.T) {
+	upbit, err := exchange.NewUpbit(apiKey, secretKey, pairs)
+	if err != nil {
+		t.Error(err)
+	}
+	res, err := upbit.CandlesByLimit(pairs[0], "3m", 10)
+	fmt.Println(res)
 }
