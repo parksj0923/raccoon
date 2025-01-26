@@ -28,6 +28,8 @@ type DataFeeder interface {
 	CandlesByLimit(pair, period string, limit int) ([]model.Candle, error)
 	CandlesByPeriod(pair, period string, start, end time.Time) ([]model.Candle, error)
 	CandlesSubscription(pair, timeframe string) (chan model.Candle, chan error)
+	Start()
+	Stop()
 }
 
 type Notifier interface{}

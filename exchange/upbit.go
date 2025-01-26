@@ -35,6 +35,7 @@ var KSTLocation, _ = time.LoadLocation("Asia/Seoul")
 type Upbit struct {
 	ctx        context.Context
 	cancelFunc context.CancelFunc
+	wg         sync.WaitGroup
 
 	// REST
 	apiKey    string
@@ -507,6 +508,27 @@ func (u *Upbit) CandlesSubscription(pair, period string) (chan model.Candle, cha
 // WebSocket run (candle.1s 구독)
 // -----------------------------------------------------------------------------
 
+func (u *Upbit) Start() {
+	go u.wsRunIfNeeded()
+}
+
+func (u *Upbit) Stop() {
+	u.cancelFunc()
+	u.wsMtx.Lock()
+	if u.wsConn != nil {
+		u.wsConn.Close()
+	}
+	u.wsMtx.Unlock()
+
+	u.wg.Wait()
+
+	for _, agg := range u.aggregatorMap {
+		close(agg.candleCh)
+		close(agg.errCh)
+	}
+	log.Info("[Upbit] stopped")
+}
+
 func (u *Upbit) wsRunIfNeeded() {
 	u.wsMtx.Lock()
 	defer u.wsMtx.Unlock()
@@ -523,7 +545,9 @@ func (u *Upbit) runWebsocket() {
 		u.wsMtx.Lock()
 		u.wsRunning = false
 		u.wsMtx.Unlock()
+		u.wg.Done()
 	}()
+	u.wg.Add(1)
 
 connect:
 	// 연결
@@ -740,21 +764,6 @@ func (u *Upbit) broadcastErr(err error) {
 			}
 		}(agg)
 	}
-}
-
-func (u *Upbit) Stop() {
-	u.cancelFunc()
-	u.wsMtx.Lock()
-	if u.wsConn != nil {
-		u.wsConn.Close()
-	}
-	u.wsMtx.Unlock()
-
-	for _, agg := range u.aggregatorMap {
-		close(agg.candleCh)
-		close(agg.errCh)
-	}
-	log.Info("[Upbit] stopped")
 }
 
 // -----------------------------------------------------------------------------
