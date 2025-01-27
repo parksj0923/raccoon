@@ -402,24 +402,17 @@ func (u *Upbit) CandlesByPeriod(pair, period string, start, end time.Time) ([]mo
 	}
 
 	var allCandles []model.Candle
-
-	// KST Location
-	loc, err := time.LoadLocation("Asia/Seoul")
-	if err != nil {
-		return nil, fmt.Errorf("fail to load KST loc: %w", err)
-	}
-
-	toTime := end.In(loc)
+	toTime := end
 
 	for {
-		toStr := toTime.Format("2006-01-02 15:04:05") + "+09:00"
+		toStr := toTime.Format("2006-01-02T15:04:05") + "+09:00"
 		params := map[string]interface{}{
 			"market": pair,
 			"count":  CandlePageLimit,
 			"to":     toStr,
 		}
 
-		body, err := u.requestUpbitGET(u.ctx, endpoint, params)
+		body, err := u.requestUpbitGET(u.ctx, "/v1/candles/"+endpoint, params)
 		if err != nil {
 			return nil, err
 		}
