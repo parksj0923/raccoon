@@ -15,9 +15,8 @@ type OrderFeed struct {
 type OrderFeedConsumer func(order model.Order)
 
 type OrderSubscription struct {
-	onlyNewOrder bool
-	consumer     OrderFeedConsumer
-	lastOrderId  string
+	consumer    OrderFeedConsumer
+	lastOrderId string
 }
 
 type OrderFeedSubscription struct {
@@ -42,7 +41,7 @@ func NewOrderFeed() *OrderFeedSubscription {
 
 // 전체적인 흐름 : New -> Subscribe -> Start -> Publish
 
-func (d *OrderFeedSubscription) Subscribe(pair string, consumer OrderFeedConsumer, onlyNewOrder bool) {
+func (d *OrderFeedSubscription) Subscribe(pair string, consumer OrderFeedConsumer) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
@@ -57,8 +56,7 @@ func (d *OrderFeedSubscription) Subscribe(pair string, consumer OrderFeedConsume
 		d.SubscriptionsByFeedKey[pair] = make([]OrderSubscription, 0)
 	}
 	d.SubscriptionsByFeedKey[pair] = append(d.SubscriptionsByFeedKey[pair], OrderSubscription{
-		onlyNewOrder: onlyNewOrder,
-		consumer:     consumer,
+		consumer: consumer,
 	})
 
 }
@@ -117,13 +115,12 @@ func (d *OrderFeedSubscription) deliverToSubscribers(pair string, order model.Or
 	}
 
 	for _, sub := range subscriptions {
-		if sub.onlyNewOrder && (sub.lastOrderId == order.ExchangeID) {
+		if sub.lastOrderId == order.ExchangeID {
 			continue
 		}
-		if sub.onlyNewOrder {
-			sub.lastOrderId = order.ExchangeID
-		}
-		go sub.consumer(order)
+		sub.lastOrderId = order.ExchangeID
+		//TODO 비동기 처리 필요, but 고루틴으로 하면 order의 순서를 보장 못함. 메세지큐 도입해야함
+		sub.consumer(order)
 	}
 }
 
