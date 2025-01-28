@@ -19,39 +19,39 @@ var (
 	ErrInvalidAsset      = errors.New("invalid asset")
 )
 
-type DataFeedSubscription struct {
-	exchange                interfaces.Exchange
-	Feeds                   *set.LinkedHashSetString  // (pair--timeframe) 세트
-	DataFeeds               map[string]*DataFeed      // key=(pair--timeframe), value=channel pair
-	SubscriptionsByDataFeed map[string][]Subscription // key=(pair--timeframe), value=subscriber list
-
-	ctx    context.Context
-	cancel context.CancelFunc
-}
-
 type DataFeed struct {
 	Data chan model.Candle
 	Err  chan error
 }
 
-type Subscription struct {
+type DataFeedConsumer func(model.Candle)
+
+type DataSubscription struct {
 	onCandleClose bool // 봉이 완성된 경우에만 콜백을 하겠다는지 여부
 	consumer      DataFeedConsumer
 }
 
-type DataFeedConsumer func(model.Candle)
+type DataFeedSubscription struct {
+	exchange               interfaces.Exchange
+	Feeds                  *set.LinkedHashSetString      // (pair--timeframe) 세트
+	DataFeeds              map[string]*DataFeed          // key=(pair--timeframe), value=channel pair
+	SubscriptionsByFeedKey map[string][]DataSubscription // key=(pair--timeframe), value=subscriber list
+
+	ctx    context.Context
+	cancel context.CancelFunc
+}
 
 // 전체적인 흐름 : New -> Subscribe -> Preload -> Start(Connect)
 
 func NewDataFeed(exchange interfaces.Exchange) *DataFeedSubscription {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &DataFeedSubscription{
-		exchange:                exchange,
-		Feeds:                   set.NewLinkedHashSetString(),
-		DataFeeds:               make(map[string]*DataFeed),
-		SubscriptionsByDataFeed: make(map[string][]Subscription),
-		ctx:                     ctx,
-		cancel:                  cancel,
+		exchange:               exchange,
+		Feeds:                  set.NewLinkedHashSetString(),
+		DataFeeds:              make(map[string]*DataFeed),
+		SubscriptionsByFeedKey: make(map[string][]DataSubscription),
+		ctx:                    ctx,
+		cancel:                 cancel,
 	}
 }
 
@@ -65,7 +65,7 @@ func (d *DataFeedSubscription) Subscribe(
 
 	d.Feeds.Add(key)
 
-	d.SubscriptionsByDataFeed[key] = append(d.SubscriptionsByDataFeed[key], Subscription{
+	d.SubscriptionsByFeedKey[key] = append(d.SubscriptionsByFeedKey[key], DataSubscription{
 		onCandleClose: onCandleClose,
 		consumer:      consumer,
 	})
@@ -79,7 +79,7 @@ func (d *DataFeedSubscription) Preload(pair, period string, candles []model.Cand
 		if !candle.Complete {
 			continue
 		}
-		for _, subscription := range d.SubscriptionsByDataFeed[key] {
+		for _, subscription := range d.SubscriptionsByFeedKey[key] {
 			subscription.consumer(candle)
 		}
 	}
@@ -110,7 +110,7 @@ func (d *DataFeedSubscription) Start(loadSync bool) {
 						return
 					}
 					// candle 들어옴 => 구독자들에게 브로드캐스트
-					for _, subscription := range d.SubscriptionsByDataFeed[key] {
+					for _, subscription := range d.SubscriptionsByFeedKey[key] {
 						if subscription.onCandleClose && !candle.Complete {
 							continue
 						}
@@ -121,7 +121,7 @@ func (d *DataFeedSubscription) Start(loadSync bool) {
 					if err != nil {
 						log.Error("dataFeedSubscription/start: ", err)
 						//TODO 에러 상황 => 계속 진행하거나, 필요 시 종료
-						for _, subscription := range d.SubscriptionsByDataFeed[key] {
+						for _, subscription := range d.SubscriptionsByFeedKey[key] {
 							subscription.consumer(model.Candle{}) // 빈 캔들로 에러 표시 (혹은 별도의 에러 전달 방식)
 						}
 					}
