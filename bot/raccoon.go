@@ -8,6 +8,8 @@ import (
 	"raccoon/interfaces"
 	"raccoon/strategy"
 	"raccoon/utils/log"
+	"raccoon/utils/tools"
+	"time"
 )
 
 // Raccoon : 전체 트레이딩 봇을 관리하는 구조체
@@ -56,11 +58,36 @@ func NewRaccoon(apiKey, secretKey string, pairs []string) (*Raccoon, error) {
 //   - 주문 구독(OrderManager) → 실제 Broker 주문 실행
 func (r *Raccoon) SetupSubscriptions() {
 
+	pair := r.strategyController.Dataframe.Pair
+	timeframe := r.strat.Timeframe()
+
+	// -------------------------------------------
+	// [1] 미리 WarmupPeriod만큼의 과거캔들 Preload
+	// -------------------------------------------
+	warmup := r.strat.WarmupPeriod() // ex) 60
+	// parseTimeframeToDuration : Upbit.go 안에 있는 함수( private 이면 복사해서 사용)
+	dur, err := tools.ParseTimeframeToDuration(timeframe)
+	if err != nil {
+		log.Warnf("Cannot parse timeframe: %v => skip preload", err)
+	} else {
+		KSTLoc, _ := time.LoadLocation("Asia/Seoul")
+		end := time.Now().In(KSTLoc)
+		start := end.Add(-dur * time.Duration(warmup)) // ex) 60일전(1d*60)
+		log.Infof("[Preload] from=%v to=%v warmup=%d timeframe=%s", start, end, warmup, timeframe)
+
+		candles, err := r.exchange.CandlesByPeriod(pair, timeframe, start, end)
+		if err != nil {
+			log.Errorf("failed to load warmup candles: %v", err)
+		} else {
+			// Preload (주어진 candles를 구독자에게 일괄 전달)
+			r.dataFeedSub.Preload(pair, timeframe, candles)
+			log.Infof("[Preload] loaded %d warmup candles for %s-%s", len(candles), pair, timeframe)
+		}
+	}
+
 	dataFeedCosumer := consumer.NewDataFeedConsumer(r.strategyController)
 	orderFeedConsumer := consumer.NewOrderFeedConsumer(r.exchange)
 	// 예: "KRW-BTC"와 Strategy.Timeframe()을 이용해 구독
-	pair := r.strategyController.Dataframe.Pair
-	timeframe := r.strat.Timeframe()
 
 	r.dataFeedSub.Subscribe(
 		pair,
@@ -69,7 +96,7 @@ func (r *Raccoon) SetupSubscriptions() {
 		true, // onCandleClose = true → 완성된 봉만 콜백
 	)
 
-	r.orderFeedSub.Subscribe(pair, orderFeedConsumer.OnMarketOrder)
+	r.orderFeedSub.Subscribe(pair, orderFeedConsumer.OnOrder)
 }
 
 // Start : Raccoon 트레이딩 봇 시작

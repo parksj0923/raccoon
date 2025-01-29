@@ -18,7 +18,7 @@ func NewOrderFeedConsumer(exchange interfaces.Exchange) *OrderFeedConsumer {
 	}
 }
 
-func (o *OrderFeedConsumer) OnMarketOrder(order model.Order) {
+func (o *OrderFeedConsumer) OnOrder(order model.Order) {
 	log.Infof("[OrderFeedConsumer] Received order: %#v", order)
 
 	// 실제 Broker 주문 실행

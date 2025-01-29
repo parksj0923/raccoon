@@ -71,3 +71,7 @@ func (c *Controller) OnCandle(candle model.Candle) {
 		}
 	}
 }
+
+func (c *Controller) OnPartialCandle(candle model.Candle) {
+	//TODO 파셜 받았을떄 해야함
+}

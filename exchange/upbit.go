@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"raccoon/utils/collection"
 	"raccoon/utils/resty"
+	"raccoon/utils/tools"
 	"strconv"
 	"strings"
 	"sync"
@@ -61,7 +62,7 @@ type CandleAggregator struct {
 
 	//1초당 들어오는 candle을 임시저장, 매초를 key로 잡아 중복데이터지만 다른시간인경우 override
 	buffer map[time.Time]model.Candle
-	//현재 집계중인 시간 구간의 시작 시각을 저장
+	//이 구간이 끝나서 완성봉이 만들어질 때까지 기다려야 하는 시간
 	currentKey time.Time
 
 	candleCh chan model.Candle
@@ -348,7 +349,7 @@ func (u *Upbit) CandlesByLimit(pair, period string, limit int) ([]model.Candle, 
 		return nil, fmt.Errorf("candles limit exceeds 200")
 	}
 	// 1) period 파싱 -> Upbit candles endpoint
-	endpoint, err := mapPeriodToCandleEndpoint(period)
+	endpoint, err := tools.MapPeriodToCandleEndpoint(period)
 	if err != nil {
 		return nil, err
 	}
@@ -396,7 +397,7 @@ func (u *Upbit) CandlesByLimit(pair, period string, limit int) ([]model.Candle, 
 
 // CandlesByPeriod : (REST) start~end
 func (u *Upbit) CandlesByPeriod(pair, period string, start, end time.Time) ([]model.Candle, error) {
-	endpoint, err := mapPeriodToCandleEndpoint(period)
+	endpoint, err := tools.MapPeriodToCandleEndpoint(period)
 	if err != nil {
 		return nil, err
 	}
@@ -474,7 +475,7 @@ func (u *Upbit) CandlesSubscription(pair, period string) (chan model.Candle, cha
 	if agg, ok := u.aggregatorMap[key]; ok {
 		return agg.candleCh, agg.errCh
 	}
-	dur, err := parseTimeframeToDuration(period)
+	dur, err := tools.ParseTimeframeToDuration(period)
 	if err != nil {
 		//TODO error 처리를 어떻게 제대로 할지
 		cch := make(chan model.Candle)
@@ -656,38 +657,115 @@ func (u *Upbit) handleCandle1s(msg []byte) {
 			continue
 		}
 		if strings.EqualFold(parts[0], raw.Code) {
-			fin, done := agg.push1sCandle(candle)
-			if done && fin.Volume > 0 {
-				agg.candleCh <- fin
+			partial, final, isFinal := agg.push1sCandle(candle)
+			if partial.Volume > 0 {
+				agg.candleCh <- partial
+			}
+
+			// 완성봉(Complete=true)이 생겼다면 추가 전송
+			if isFinal && final.Volume > 0 {
+				agg.candleCh <- final
 			}
 		}
 	}
 }
 
-// push1sCandle : 1초봉 -> (완성봉, bool)
-func (agg *CandleAggregator) push1sCandle(c model.Candle) (model.Candle, bool) {
-	// "1s" => 그냥 반환
+func (agg *CandleAggregator) push1sCandle(c model.Candle) (partial model.Candle, final model.Candle, isFinal bool) {
+	// 1) duration=0 => "1s" timeframe
 	if agg.duration == 0 {
 		agg.buffer[c.Time] = c
-		return c, true
+		// 1초봉 그대로 완성
+		return c, model.Candle{}, true
 	}
 
-	// 매초 buffer에 저장하고, 동일한 pair의 같은 시간의 데이터가 들어오는것은 최신데이터로 override
+	// 2) buffer에 저장(override)
 	agg.buffer[c.Time] = c
 
-	thisKey := c.Time.Truncate(agg.duration)
+	// 3) 초기에 currentKey가 0이면, "다음 정각"으로 맞춘다
+	//    예: c.Time=13:29:12, truncate(1h)=13:00,
+	//        다음 경계=14:00 (즉 t0.Add(duration))
 	if agg.currentKey.IsZero() {
-		agg.currentKey = thisKey
+		t0 := c.Time.Truncate(agg.duration)
+		// 만약 c.Time이 이미 경계와 정확히 일치하지 않는다면, 다음 경계로
+		if !t0.Equal(c.Time) {
+			t0 = t0.Add(agg.duration)
+		}
+		agg.currentKey = t0 // ex) 14:00
 	}
-	if thisKey.After(agg.currentKey) {
-		// finish old interval
-		fin := agg.aggregateBuffer(agg.currentKey)
-		// remove old seconds
-		agg.removeOldSeconds(agg.currentKey)
-		agg.currentKey = thisKey
-		return fin, true
+
+	// 4) "부분봉"(partialCandle)은 [currentKey - duration, c.Time) 사이 데이터
+	//    -> 아직 완성되지 않은 구간
+	//    예: currentKey=14:00 => partial은 [13:00, 13:29] ~ c.Time(실제)
+	partialStart := agg.currentKey.Add(-agg.duration)
+	partial = agg.buildPartialCandle(partialStart, c.Time)
+	partial.Complete = false
+
+	// 5) finalCandle: 만약 c.Time >= agg.currentKey면, "정각"에 도달하거나 지났으므로 이전 구간 완성
+	isFinal = false
+	if !c.Time.Before(agg.currentKey) {
+		// (a) 이전 구간: [currentKey - duration, currentKey)
+		finalStart := agg.currentKey.Add(-agg.duration)
+		final = agg.aggregateBuffer(finalStart)
+		final.Complete = true
+		isFinal = true
+
+		// (b) buffer에서 이전 구간 데이터 제거
+		agg.removeOldSeconds(finalStart)
+
+		// (c) 다음 정각으로 이동
+		agg.currentKey = agg.currentKey.Add(agg.duration)
 	}
-	return model.Candle{}, false
+
+	return partial, final, isFinal
+}
+
+// buildPartialCandle : [startKey, now) 구간을 합산, 아직 완료되지 않은 봉(Complete=false)
+func (agg *CandleAggregator) buildPartialCandle(startKey, now time.Time) model.Candle {
+	// 부분봉을 위한 임시합산
+	//   interval = [startKey, now) (단, now가 startKey + duration 보다 크면 사실 final이 될 것)
+	var secs []model.Candle
+	for t, sc := range agg.buffer {
+		if (t.Equal(startKey) || t.After(startKey)) && t.Before(now) {
+			secs = append(secs, sc)
+		}
+	}
+	if len(secs) == 0 {
+		return model.Candle{
+			Pair:  agg.pair,
+			Time:  now,
+			Close: 0,
+		}
+	}
+
+	collection.Sort(secs, func(a, b model.Candle) bool {
+		return a.Time.Before(b.Time)
+	})
+	first := secs[0]
+	out := model.Candle{
+		Pair:      first.Pair,
+		Time:      now, // 부분봉의 시각은 '현재' 시각 (혹은 startKey?)
+		UpdatedAt: now,
+		Open:      first.Open,
+		High:      first.High,
+		Low:       first.Low,
+		Close:     first.Close,
+		Volume:    0,
+		Complete:  false,
+		Metadata:  make(map[string]float64),
+	}
+	for i, sc := range secs {
+		if i > 0 {
+			if sc.High > out.High {
+				out.High = sc.High
+			}
+			if sc.Low < out.Low {
+				out.Low = sc.Low
+			}
+		}
+		out.Close = sc.Close
+		out.Volume += sc.Volume
+	}
+	return out
 }
 
 // removeOldSeconds : remove all second in the old interval
@@ -703,7 +781,7 @@ func (agg *CandleAggregator) removeOldSeconds(minKey time.Time) {
 	}
 }
 
-// aggregateBuffer : gather all seconds in [minKey, minKey+duration)
+// aggregateBuffer : [minKey, minKey+duration) 완성봉
 func (agg *CandleAggregator) aggregateBuffer(minKey time.Time) model.Candle {
 	start := minKey
 	end := minKey.Add(agg.duration)
@@ -715,11 +793,14 @@ func (agg *CandleAggregator) aggregateBuffer(minKey time.Time) model.Candle {
 		}
 	}
 	if len(secs) == 0 {
-		return model.Candle{}
+		return model.Candle{
+			Pair: agg.pair,
+			Time: minKey,
+		}
 	}
-	// sort by sc.Time
-	collection.Sort(secs, func(i, j model.Candle) bool {
-		return i.Time.Before(j.Time)
+	// sort
+	collection.Sort(secs, func(a, b model.Candle) bool {
+		return a.Time.Before(b.Time)
 	})
 
 	first := secs[0]
@@ -731,17 +812,17 @@ func (agg *CandleAggregator) aggregateBuffer(minKey time.Time) model.Candle {
 		High:      first.High,
 		Low:       first.Low,
 		Close:     first.Close,
+		Volume:    first.Volume,
 		Complete:  true,
 		Metadata:  make(map[string]float64),
 	}
-	for i, sc := range secs {
-		if i > 0 {
-			if sc.High > out.High {
-				out.High = sc.High
-			}
-			if sc.Low < out.Low {
-				out.Low = sc.Low
-			}
+	for i := 1; i < len(secs); i++ {
+		sc := secs[i]
+		if sc.High > out.High {
+			out.High = sc.High
+		}
+		if sc.Low < out.Low {
+			out.Low = sc.Low
 		}
 		out.Close = sc.Close
 		out.Volume += sc.Volume
@@ -969,68 +1050,4 @@ func convertChanceToAssetInfo(ch *model.OrderChanceResponse) (model.AssetInfo, e
 		QuotePrecision:     2,
 		BaseAssetPrecision: 8,
 	}, nil
-}
-
-func mapPeriodToCandleEndpoint(period string) (string, error) {
-	switch period {
-	case "1s":
-		return "seconds", nil
-	case "1m":
-		return "minutes/1", nil
-	case "3m":
-		return "minutes/3", nil
-	case "5m":
-		return "minutes/5", nil
-	case "10m":
-		return "minutes/10", nil
-	case "15m":
-		return "minutes/15", nil
-	case "30m":
-		return "minutes/30", nil
-	case "60m", "1h":
-		return "minutes/60", nil
-	case "240m":
-		return "minutes/240", nil
-	case "1d":
-		return "days", nil
-	case "1w":
-		return "weeks", nil
-	case "1M":
-		return "months", nil
-	case "1y":
-		return "years", nil
-	default:
-		return "", fmt.Errorf("unsupported upbit period: %s", period)
-	}
-}
-
-func parseTimeframeToDuration(tf string) (time.Duration, error) {
-	switch tf {
-	case "1s":
-		return 0, nil
-	case "1m":
-		return time.Minute, nil
-	case "3m":
-		return 3 * time.Minute, nil
-	case "5m":
-		return 5 * time.Minute, nil
-	case "10":
-		return 10 * time.Second, nil
-	case "15m":
-		return 15 * time.Minute, nil
-	case "30m":
-		return 30 * time.Minute, nil
-	case "60m", "1h":
-		return time.Hour, nil
-	case "1d":
-		return 24 * time.Hour, nil
-	case "1w":
-		return 7 * 24 * time.Hour, nil
-	case "1M":
-		return 30 * 24 * time.Hour, nil
-	case "1y":
-		return 365 * 24 * time.Hour, nil
-	default:
-		return 0, fmt.Errorf("unsupported timeframe: %s", tf)
-	}
 }
