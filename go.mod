@@ -4,6 +4,7 @@ go 1.23.2
 
 require (
 	github.com/StudioSol/set v1.0.0
+	github.com/go-echarts/go-echarts/v2 v2.5.0
 	github.com/go-jet/jet/v2 v2.12.0
 	github.com/go-resty/resty/v2 v2.16.4
 	github.com/gofiber/fiber/v2 v2.52.6

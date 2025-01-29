@@ -75,11 +75,17 @@ func (d *DataFeedSubscription) Subscribe(
 func (d *DataFeedSubscription) Preload(pair, period string, candles []model.Candle) {
 	log.Infof("[SETUP] preloading %d candles for %s-%s", len(candles), pair, period)
 	key := d.makeFeedKey(pair, period)
+
+	for i := range candles {
+		candles[i].Complete = true
+	}
+
 	for _, candle := range candles {
-		if !candle.Complete {
-			continue
-		}
 		for _, subscription := range d.SubscriptionsByFeedKey[key] {
+			// onCandleClose=true 라면, Complete=true 인 봉만 전달
+			if subscription.onCandleClose && !candle.Complete {
+				continue
+			}
 			subscription.consumer(candle)
 		}
 	}

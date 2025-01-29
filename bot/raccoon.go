@@ -2,6 +2,7 @@ package bot
 
 import (
 	"fmt"
+	"raccoon/chartview"
 	"raccoon/consumer"
 	"raccoon/exchange"
 	"raccoon/feed"
@@ -60,12 +61,22 @@ func (r *Raccoon) SetupSubscriptions() {
 
 	pair := r.strategyController.Dataframe.Pair
 	timeframe := r.strat.Timeframe()
+	warmup := r.strat.WarmupPeriod()
+
+	dataFeedCosumer := consumer.NewDataFeedConsumer(r.strategyController)
+	r.dataFeedSub.Subscribe(
+		pair,
+		timeframe,
+		dataFeedCosumer.OnCandle,
+		true, // onCandleClose = true → 완성된 봉만 콜백
+	)
+
+	orderFeedConsumer := consumer.NewOrderFeedConsumer(r.exchange)
+	r.orderFeedSub.Subscribe(pair, orderFeedConsumer.OnOrder)
 
 	// -------------------------------------------
-	// [1] 미리 WarmupPeriod만큼의 과거캔들 Preload
+	// 미리 WarmupPeriod만큼의 과거캔들 Preload
 	// -------------------------------------------
-	warmup := r.strat.WarmupPeriod() // ex) 60
-	// parseTimeframeToDuration : Upbit.go 안에 있는 함수( private 이면 복사해서 사용)
 	dur, err := tools.ParseTimeframeToDuration(timeframe)
 	if err != nil {
 		log.Warnf("Cannot parse timeframe: %v => skip preload", err)
@@ -84,19 +95,6 @@ func (r *Raccoon) SetupSubscriptions() {
 			log.Infof("[Preload] loaded %d warmup candles for %s-%s", len(candles), pair, timeframe)
 		}
 	}
-
-	dataFeedCosumer := consumer.NewDataFeedConsumer(r.strategyController)
-	orderFeedConsumer := consumer.NewOrderFeedConsumer(r.exchange)
-	// 예: "KRW-BTC"와 Strategy.Timeframe()을 이용해 구독
-
-	r.dataFeedSub.Subscribe(
-		pair,
-		timeframe,
-		dataFeedCosumer.OnCandle,
-		true, // onCandleClose = true → 완성된 봉만 콜백
-	)
-
-	r.orderFeedSub.Subscribe(pair, orderFeedConsumer.OnOrder)
 }
 
 // Start : Raccoon 트레이딩 봇 시작
@@ -122,6 +120,9 @@ func (r *Raccoon) Start() {
 
 	// 1) Upbit websocket 시작
 	r.exchange.Start()
+
+	go chartview.StartChartServer(":8080")
+	log.Infof("Raccoon started. Open http://localhost:8080/chart to see chart!")
 
 	// 2) DataFeedSubscription -> Start
 	//    -> Websocket 수신된 Candle -> 구독자에 전달(= controller.OnCandle)

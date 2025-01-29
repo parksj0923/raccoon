@@ -1,6 +1,7 @@
 package consumer
 
 import (
+	"raccoon/chartview"
 	"raccoon/model"
 	"raccoon/strategy"
 )
@@ -17,4 +18,6 @@ func NewDataFeedConsumer(controller *strategy.Controller) *DataFeedConsumer {
 
 func (c *DataFeedConsumer) OnCandle(candle model.Candle) {
 	c.strategyController.OnCandle(candle)
+
+	chartview.GlobalChartData.AppendCandle(candle)
 }

@@ -2,6 +2,7 @@ package strategy
 
 import (
 	"math"
+	"raccoon/chartview"
 	"raccoon/feed"
 	"raccoon/indicator"
 	"raccoon/interfaces"
@@ -21,12 +22,12 @@ func NewPSHStrategy(orderFeed *feed.OrderFeedSubscription) *PSHStrategy {
 
 // Timeframe : 일봉 기준
 func (s *PSHStrategy) Timeframe() string {
-	return "1h"
+	return "1d"
 }
 
 // WarmupPeriod : 월별 추세 분석 등 지표 계산에 필요한 최소 봉 수
 func (s *PSHStrategy) WarmupPeriod() int {
-	return 10
+	return 100
 }
 
 // Indicators : 각 봉 완료 시(또는 백테스트 루프 내) 지표 계산.
@@ -158,6 +159,7 @@ func (s *PSHStrategy) OnCandle(df *model.Dataframe, broker interfaces.Broker) {
 	trendTypeArr := df.Metadata["trend"]
 	macdArr := df.Metadata["macd"]
 	macdSigArr := df.Metadata["macdSignal"]
+	macdHistArr := df.Metadata["macdHist"]
 	rsiArr := df.Metadata["rsi14"]
 
 	if trendTypeArr == nil || macdArr == nil || macdSigArr == nil || rsiArr == nil {
@@ -184,6 +186,8 @@ func (s *PSHStrategy) OnCandle(df *model.Dataframe, broker interfaces.Broker) {
 		log.Error(err)
 		return
 	}
+
+	chartview.GlobalChartData.UpdateIndicators(rsiArr, macdArr, macdSigArr, macdHistArr)
 
 	// ----- (3) 단순 매매 시그널 예시 -----
 	shouldBuy := false
