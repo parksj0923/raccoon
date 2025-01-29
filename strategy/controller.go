@@ -1,6 +1,8 @@
 package strategy
 
 import (
+	"fmt"
+	"raccoon/chartview"
 	"raccoon/interfaces"
 	"raccoon/model"
 	"raccoon/utils/log"
@@ -66,6 +68,17 @@ func (c *Controller) OnCandle(candle model.Candle) {
 	if len(c.Dataframe.Close) >= c.Strategy.WarmupPeriod() {
 		sample := c.Dataframe.Sample(c.Strategy.WarmupPeriod())
 		c.Strategy.Indicators(&sample)
+
+		macdArr := sample.Metadata["macd"]
+		macdSigArr := sample.Metadata["macdSignal"]
+		macdHistArr := sample.Metadata["macdHist"]
+		rsiArr := sample.Metadata["rsi14"]
+
+		chartview.GlobalChartData.UpdateIndicators(rsiArr, macdArr, macdSigArr, macdHistArr)
+
+		//TODO delete
+		fmt.Println(sample.Time[len(sample.Time)-1])
+
 		if c.started {
 			c.Strategy.OnCandle(&sample, c.Broker)
 		}

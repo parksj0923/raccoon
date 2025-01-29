@@ -594,6 +594,40 @@ connect:
 	u.wsConn = conn
 	log.Info("[UpbitWS] connected")
 
+	conn.SetPongHandler(func(appData string) error {
+		// PONG 수신 시점부터 2분 뒤까지는 유효하다고 설정(Upbit가 120초 타임아웃)
+		conn.SetReadDeadline(time.Now().Add(2 * time.Minute))
+		return nil
+	})
+
+	keepaliveCtx, keepaliveCancel := context.WithCancel(u.ctx)
+	go func() {
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+		defer keepaliveCancel() // 이 고루틴이 끝나면 context도 종료
+
+		for {
+			select {
+			case <-keepaliveCtx.Done():
+				return
+			case <-ticker.C:
+				// write ping frame
+				// 세 번째 파라미터는 deadline (시간 제한)
+				if err := conn.WriteControl(
+					websocket.PingMessage,
+					[]byte("ping"),
+					time.Now().Add(5*time.Second),
+				); err != nil {
+					log.Warnf("[UpbitWS] ping error: %v", err)
+					return
+				}
+			}
+		}
+	}()
+
+	// 초기 read deadline 설정
+	conn.SetReadDeadline(time.Now().Add(2 * time.Minute))
+
 	pairsSet := make(map[string]bool)
 	for k := range u.aggregatorMap {
 		// k = "KRW-BTC_1m" => "KRW-BTC"
@@ -641,13 +675,16 @@ connect:
 					log.Warnf("[UpbitWS] retrying... attempt=%d", retries)
 					time.Sleep(1 * time.Second)
 					conn.Close()
+					keepaliveCancel()
 					goto connect
 				} else {
 					u.broadcastErr(fmt.Errorf("read fail after %d retries: %w", maxWSRetries, err))
 					conn.Close()
+					keepaliveCancel()
 					return
 				}
 			}
+			conn.SetReadDeadline(time.Now().Add(2 * time.Minute))
 			u.handleCandle1s(msg)
 		}
 	}
@@ -697,6 +734,12 @@ func (u *Upbit) handleCandle1s(msg []byte) {
 		}
 		if strings.EqualFold(parts[0], raw.Code) {
 			partial, final, isFinal := agg.push1sCandle(candle)
+			//TODO delete
+			fmt.Println("partial", partial)
+			if isFinal {
+				fmt.Println("final", final)
+			}
+
 			if partial.Volume > 0 {
 				agg.candleCh <- partial
 			}
