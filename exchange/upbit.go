@@ -472,15 +472,19 @@ func (u *Upbit) CandlesByPeriod(pair, period string, start, end time.Time) ([]mo
 // CandlesSubscription : WebSocket 실시간 캔들
 func (u *Upbit) CandlesSubscription(pair, period string) (chan model.Candle, chan error) {
 	key := pair + "_" + period
+
+	// 1) 이미 aggregator가 있으면 => 재사용
 	if agg, ok := u.aggregatorMap[key]; ok {
+		// 웹소켓도 이미 돌고 있다고 가정
 		return agg.candleCh, agg.errCh
 	}
+
+	// 2) aggregator가 없으니 새로 생성
 	dur, err := tools.ParseTimeframeToDuration(period)
 	if err != nil {
-		//TODO error 처리를 어떻게 제대로 할지
 		cch := make(chan model.Candle)
 		ech := make(chan error, 1)
-		ech <- fmt.Errorf("unsupported timeframe: %s", period)
+		ech <- fmt.Errorf("invalid timeframe: %s", period)
 		close(ech)
 		return cch, ech
 	}
@@ -495,8 +499,43 @@ func (u *Upbit) CandlesSubscription(pair, period string) (chan model.Candle, cha
 	}
 	u.aggregatorMap[key] = agg
 
+	now := time.Now().In(KSTLocation)
+	agg.initCurrentKey(now)
+	diff := agg.currentKey.Sub(now)
+	if diff < agg.duration {
+		// (a) 이전 구간: [currentKey - duration, now)
+		//     예: [11:00, 11:40)
+		prevStart := agg.currentKey.Add(-agg.duration)
+		log.Infof("[CandlesSubscription] check: currentKey=%v, now=%v, diff=%v => Preload[%v~%v)",
+			agg.currentKey, now, diff, prevStart, now)
+
+		if prevStart.Before(now) {
+			candles, err2 := u.CandlesByPeriod(pair, period, prevStart, now)
+			if err2 != nil {
+				log.Warnf("Preload fetch error: %v (ignored)", err2)
+			} else {
+				for _, c := range candles {
+					c.Complete = false
+					agg.push1sCandle(c)
+				}
+				log.Infof("[CandlesSubscription] Preload done. total=%d", len(candles))
+			}
+		}
+	} else {
+		log.Infof("[CandlesSubscription] skip preload. diff=%v >= duration=%v", diff, agg.duration)
+	}
+
+	// 5) WebSocket 실행 (처음 aggregator 생성 시점에만)
 	go u.wsRunIfNeeded()
+
 	return agg.candleCh, agg.errCh
+}
+func (agg *CandleAggregator) initCurrentKey(t time.Time) {
+	t0 := t.Truncate(agg.duration)
+	if !t0.Equal(t) {
+		t0 = t0.Add(agg.duration)
+	}
+	agg.currentKey = t0
 }
 
 // -----------------------------------------------------------------------------
@@ -685,12 +724,7 @@ func (agg *CandleAggregator) push1sCandle(c model.Candle) (partial model.Candle,
 	//    예: c.Time=13:29:12, truncate(1h)=13:00,
 	//        다음 경계=14:00 (즉 t0.Add(duration))
 	if agg.currentKey.IsZero() {
-		t0 := c.Time.Truncate(agg.duration)
-		// 만약 c.Time이 이미 경계와 정확히 일치하지 않는다면, 다음 경계로
-		if !t0.Equal(c.Time) {
-			t0 = t0.Add(agg.duration)
-		}
-		agg.currentKey = t0 // ex) 14:00
+		agg.initCurrentKey(c.Time)
 	}
 
 	// 4) "부분봉"(partialCandle)은 [currentKey - duration, c.Time) 사이 데이터

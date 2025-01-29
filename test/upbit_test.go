@@ -57,8 +57,8 @@ func Test_CandlesByPeriod(t *testing.T) {
 		return
 	}
 
-	startStr := "2025-01-12 13:15:00"
-	endStr := "2025-01-12 13:22:00"
+	startStr := "2025-01-12 13:00:00"
+	endStr := "2025-01-12 13:45:00"
 
 	start, err := time.ParseInLocation(layout, startStr, KSTloc)
 	if err != nil {
@@ -72,7 +72,7 @@ func Test_CandlesByPeriod(t *testing.T) {
 		return
 	}
 
-	res, err := upbit.CandlesByPeriod(pairs[0], "3m", start, end)
+	res, err := upbit.CandlesByPeriod(pairs[0], "1h", start, end)
 	if err != nil {
 		t.Error(err)
 	}
