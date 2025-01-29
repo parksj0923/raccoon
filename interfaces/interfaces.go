@@ -13,7 +13,7 @@ type Exchange interface {
 
 type Broker interface {
 	Account() (model.Asset, error)
-	Position(pair string) (asset, quote float64, err error)
+	Position(pair string) (asset, quote, avgBuyPrice float64, err error)
 	Order(pair string, uuidOrIdentifier string, isIdentifier bool) (model.Order, error)
 	OpenOrders(pair string, limit int) ([]model.Order, error)
 	CreateOrderLimit(side model.SideType, pair string,

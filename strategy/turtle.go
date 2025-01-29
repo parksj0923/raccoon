@@ -30,7 +30,7 @@ func (e *Turtle) OnCandle(df *model.Dataframe, broker interfaces.Broker) {
 	highest := df.Metadata["max40"].Last(0)
 	lowest := df.Metadata["low20"].Last(0)
 
-	assetPosition, quotePosition, err := broker.Position(df.Pair)
+	assetPosition, quotePosition, _, err := broker.Position(df.Pair)
 	if err != nil {
 		log.Error(err)
 		return

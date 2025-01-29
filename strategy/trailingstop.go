@@ -43,7 +43,7 @@ func (t trailing) Indicators(df *model.Dataframe) []indicator.ChartIndicator {
 }
 
 func (t trailing) OnCandle(df *model.Dataframe, broker interfaces.Broker) {
-	asset, quote, err := broker.Position(df.Pair)
+	asset, quote, _, err := broker.Position(df.Pair)
 	if err != nil {
 		log.Error(err)
 		return
@@ -66,7 +66,7 @@ func (t trailing) OnCandle(df *model.Dataframe, broker interfaces.Broker) {
 
 func (t trailing) OnPartialCandle(df *model.Dataframe, broker interfaces.Broker) {
 	if trailing := t.trailingStop[df.Pair]; trailing != nil && trailing.Update(df.Close.Last(0)) {
-		asset, _, err := broker.Position(df.Pair)
+		asset, _, _, err := broker.Position(df.Pair)
 		if err != nil {
 			log.Error(err)
 			return

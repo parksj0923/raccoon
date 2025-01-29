@@ -1,7 +1,6 @@
 package strategy
 
 import (
-	"fmt"
 	"raccoon/chartview"
 	"raccoon/interfaces"
 	"raccoon/model"
@@ -75,9 +74,6 @@ func (c *Controller) OnCandle(candle model.Candle) {
 		rsiArr := sample.Metadata["rsi14"]
 
 		chartview.GlobalChartData.UpdateIndicators(rsiArr, macdArr, macdSigArr, macdHistArr)
-
-		//TODO delete
-		fmt.Println(sample.Time[len(sample.Time)-1])
 
 		if c.started {
 			c.Strategy.OnCandle(&sample, c.Broker)

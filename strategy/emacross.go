@@ -47,7 +47,7 @@ func (e CrossEMA) Indicators(df *model.Dataframe) []indicator.ChartIndicator {
 func (e *CrossEMA) OnCandle(df *model.Dataframe, broker interfaces.Broker) {
 	closePrice := df.Close.Last(0)
 
-	assetPosition, quotePosition, err := broker.Position(df.Pair)
+	assetPosition, quotePosition, _, err := broker.Position(df.Pair)
 	if err != nil {
 		log.Error(err)
 		return

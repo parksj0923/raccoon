@@ -134,22 +134,25 @@ func (u *Upbit) Account() (model.Asset, error) {
 	return model.Asset{Balances: res}, nil
 }
 
-func (u *Upbit) Position(pair string) (asset, quote float64, err error) {
+func (u *Upbit) Position(pair string) (asset, quote, avgBuyPrice float64, err error) {
 	acc, err := u.Account()
 	if err != nil {
-		return 0, 0, err
+		return 0, 0, 0, err
 	}
 	base, quoteAsset := SplitAssetQuote(pair)
-	var baseBal, quoteBal float64
+	var baseBal, quoteBal, avgBuyPriceBal float64
 	for _, b := range acc.Balances {
 		if strings.EqualFold(b.Currency, base) {
 			baseBal = b.Balance + b.Locked
+			avgBuyPriceBal = b.AvgBuyPrice
+
 		}
 		if strings.EqualFold(b.Currency, quoteAsset) {
 			quoteBal = b.Balance + b.Locked
+
 		}
 	}
-	return baseBal, quoteBal, nil
+	return baseBal, quoteBal, avgBuyPriceBal, nil
 }
 
 func (u *Upbit) Order(pair string, uuidOrIdentifier string, isIdentifier bool) (model.Order, error) {
@@ -734,17 +737,11 @@ func (u *Upbit) handleCandle1s(msg []byte) {
 		}
 		if strings.EqualFold(parts[0], raw.Code) {
 			partial, final, isFinal := agg.push1sCandle(candle)
-			//TODO delete
-			fmt.Println("partial", partial)
-			if isFinal {
-				fmt.Println("final", final)
-			}
 
 			if partial.Volume > 0 {
 				agg.candleCh <- partial
 			}
 
-			// 완성봉(Complete=true)이 생겼다면 추가 전송
 			if isFinal && final.Volume > 0 {
 				agg.candleCh <- final
 			}
