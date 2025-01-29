@@ -87,7 +87,7 @@ func Test_WsConnect(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	receivedChannel, errCh := upbit.CandlesSubscription(pairs[0], "3m")
+	receivedChannel, errCh := upbit.CandlesSubscription(pairs[0], "1h")
 	for {
 		select {
 		case err := <-errCh:
@@ -105,22 +105,13 @@ func Test_CandlesSubscription(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	c5m, e5m := upbit.CandlesSubscription("KRW-BTC", "5m")
-	c1m, e1m := upbit.CandlesSubscription("KRW-BTC", "1m")
+	c1m, e1m := upbit.CandlesSubscription("KRW-DOGE", "1m")
+	c3m, e3m := upbit.CandlesSubscription("KRW-DOGE", "3m")
 
 	// consume
 	go func() {
 		for {
 			select {
-			case candle, ok := <-c5m:
-				if !ok {
-					return
-				}
-				fmt.Println("[5m] candle =>", candle)
-			case err, ok := <-e5m:
-				if ok {
-					fmt.Println("[5m err] =>", err)
-				}
 			case candle, ok := <-c1m:
 				if !ok {
 					return
@@ -130,7 +121,17 @@ func Test_CandlesSubscription(t *testing.T) {
 				if ok {
 					fmt.Println("[1m err] =>", err)
 				}
+			case candle, ok := <-c3m:
+				if !ok {
+					return
+				}
+				fmt.Println("[3m] candle =>", candle)
+			case err, ok := <-e3m:
+				if ok {
+					fmt.Println("[3m err] =>", err)
+				}
 			}
 		}
 	}()
+	time.Sleep(100 * time.Second)
 }
