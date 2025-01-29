@@ -107,6 +107,19 @@ func (r *Raccoon) SetupSubscriptions() {
 func (r *Raccoon) Start() {
 	log.Infof("Raccoon starting...")
 
+	account, err := r.exchange.Account()
+	if err != nil {
+		log.Errorf("Failed to fetch account info: %v", err)
+	} else {
+		// 원하는 양식에 맞게 출력
+		// account.Balances 내역을 순회하며 각각의 정보도 로깅할 수 있음
+		log.Infof("=== [Account Info] ===")
+		for _, b := range account.Balances {
+			log.Infof("Currency=%s, balance=%.4f, locked=%.4f, avgBuyPrice=%.4f",
+				b.Currency, b.Balance, b.Locked, b.AvgBuyPrice)
+		}
+	}
+
 	// 1) Upbit websocket 시작
 	r.exchange.Start()
 

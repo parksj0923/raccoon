@@ -13,7 +13,7 @@ func main() {
 	// 1) API 키
 	apiKey := os.Getenv("UPBIT_ACCESS_KEY")
 	secretKey := os.Getenv("UPBIT_SECRET_KEY")
-	pairs := []string{"KRW-BTC"}
+	pairs := []string{"KRW-DOGE"}
 
 	// 2) Raccoon 인스턴스 생성
 	raccoon, err := bot.NewRaccoon(apiKey, secretKey, pairs)

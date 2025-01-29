@@ -68,3 +68,30 @@ func ParseTimeframeToDuration(tf string) (time.Duration, error) {
 		return 0, fmt.Errorf("unsupported timeframe: %s", tf)
 	}
 }
+
+// 기존의 time.truncate 함수는 UTC기준으로 하기때문에 변경이 필요함
+func TruncateKST(t time.Time, d time.Duration) (time.Time, error) {
+	// KST 시간대 로드
+	loc, err := time.LoadLocation("Asia/Seoul")
+	if err != nil {
+		return time.Time{}, fmt.Errorf("failed to load KST location: %v", err)
+	}
+
+	// 시간을 KST 시간대로 변환
+	local := t.In(loc)
+
+	// 자정 기준 설정
+	year, month, day := local.Date()
+	midnight := time.Date(year, month, day, 0, 0, 0, 0, loc)
+
+	// 자정부터 현재 시간까지의 경과 시간 계산
+	elapsed := local.Sub(midnight)
+
+	// 경과 시간을 주어진 duration으로 잘라냄
+	truncatedElapsed := elapsed.Truncate(d)
+
+	// 최종 truncated 시간 계산
+	truncated := midnight.Add(truncatedElapsed)
+
+	return truncated, nil
+}

@@ -506,8 +506,8 @@ func (u *Upbit) CandlesSubscription(pair, period string) (chan model.Candle, cha
 		// (a) 이전 구간: [currentKey - duration, now)
 		//     예: [11:00, 11:40)
 		prevStart := agg.currentKey.Add(-agg.duration)
-		log.Infof("[CandlesSubscription] check: currentKey=%v, now=%v, diff=%v => Preload[%v~%v)",
-			agg.currentKey, now, diff, prevStart, now)
+		log.Infof("[CandlesSubscription] check: currentKey=%v, now=%v => Preload[%v~%v)",
+			agg.currentKey, now, prevStart, now)
 
 		if prevStart.Before(now) {
 			candles, err2 := u.CandlesByPeriod(pair, period, prevStart, now)
@@ -531,7 +531,7 @@ func (u *Upbit) CandlesSubscription(pair, period string) (chan model.Candle, cha
 	return agg.candleCh, agg.errCh
 }
 func (agg *CandleAggregator) initCurrentKey(t time.Time) {
-	t0 := t.Truncate(agg.duration)
+	t0, _ := tools.TruncateKST(t, agg.duration)
 	if !t0.Equal(t) {
 		t0 = t0.Add(agg.duration)
 	}

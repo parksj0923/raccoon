@@ -21,12 +21,12 @@ func NewPSHStrategy(orderFeed *feed.OrderFeedSubscription) *PSHStrategy {
 
 // Timeframe : 일봉 기준
 func (s *PSHStrategy) Timeframe() string {
-	return "1d"
+	return "1h"
 }
 
 // WarmupPeriod : 월별 추세 분석 등 지표 계산에 필요한 최소 봉 수
 func (s *PSHStrategy) WarmupPeriod() int {
-	return 60
+	return 10
 }
 
 // Indicators : 각 봉 완료 시(또는 백테스트 루프 내) 지표 계산.
