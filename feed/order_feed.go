@@ -16,7 +16,7 @@ type OrderFeedConsumer func(order model.Order)
 
 type OrderSubscription struct {
 	consumer    OrderFeedConsumer
-	lastOrderId string
+	lastOrderId int64
 }
 
 type OrderFeedSubscription struct {
@@ -115,10 +115,8 @@ func (d *OrderFeedSubscription) deliverToSubscribers(pair string, order model.Or
 	}
 
 	for _, sub := range subscriptions {
-		if sub.lastOrderId == order.ExchangeID {
-			continue
-		}
-		sub.lastOrderId = order.ExchangeID
+		//TODO lastOrderId와 order의 id를 비교하는 로직을 구현하고 중복및 구매 순서 보장 해야함
+		sub.lastOrderId = order.ID
 		//TODO 비동기 처리 필요, but 고루틴으로 하면 order의 순서를 보장 못함. 메세지큐 도입해야함
 		sub.consumer(order)
 	}

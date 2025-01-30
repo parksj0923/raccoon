@@ -336,12 +336,12 @@ func (s *PSHStrategy) OnCandle(df *model.Dataframe, broker interfaces.Broker) {
 		if krwAmt >= 5000 {
 			// 예: "시장가 매수, KRW 전액 사용" (Upbit가정: 시장가 매수 시 'price' param에 KRW금액)
 			buyOrder := model.Order{
-				Pair:       df.Pair,
-				Side:       model.SideTypeBuy,
-				Type:       model.OrderTypePrice, // upbit 시장가 매수
-				Price:      krwAmt,               // KRW 전액
-				Quantity:   0,                    // 수량은 빈값
-				ExchangeID: "",                   // 나중에 채워질 수 있음
+				Pair:     df.Pair,
+				Side:     model.SideTypeBuy,
+				Type:     model.OrderTypePrice, // upbit 시장가 매수
+				Price:    krwAmt,               // KRW 전액
+				Quantity: 0,                    // 수량은 빈값
+				ID:       0,                    // 나중에 채워질 수 있음
 			}
 			s.orderFeed.Publish(buyOrder)
 			log.Infof("[PSHStrategy] 매수신호 -> OrderFeed.Publish(BUY %.2fKRW)", krwAmt)
