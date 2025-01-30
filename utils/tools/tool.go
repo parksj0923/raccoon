@@ -23,7 +23,7 @@ func MapPeriodToCandleEndpoint(period string) (string, error) {
 		return "minutes/30", nil
 	case "60m", "1h":
 		return "minutes/60", nil
-	case "240m":
+	case "240m", "4h":
 		return "minutes/240", nil
 	case "1d":
 		return "days", nil
@@ -48,7 +48,7 @@ func ParseTimeframeToDuration(tf string) (time.Duration, error) {
 		return 3 * time.Minute, nil
 	case "5m":
 		return 5 * time.Minute, nil
-	case "10":
+	case "10m":
 		return 10 * time.Second, nil
 	case "15m":
 		return 15 * time.Minute, nil
@@ -56,6 +56,8 @@ func ParseTimeframeToDuration(tf string) (time.Duration, error) {
 		return 30 * time.Minute, nil
 	case "60m", "1h":
 		return time.Hour, nil
+	case "240m", "4h":
+		return 4 * time.Hour, nil
 	case "1d":
 		return 24 * time.Hour, nil
 	case "1w":
