@@ -159,9 +159,9 @@ func (s *PSHStrategy) OnCandle(df *model.Dataframe, broker interfaces.Broker) {
 
 	shortMA := df.Metadata["shortMA"]
 	longMA := df.Metadata["longMA"]
-	middleBand := df.Metadata["middleBand"]
-	upperBand := df.Metadata["upperBand"]
-	lowerBand := df.Metadata["lowerBand"]
+	middleBand := df.Metadata["bb_mid"]
+	upperBand := df.Metadata["bb_up"]
+	lowerBand := df.Metadata["bb_low"]
 	trendType := df.Metadata["trend"]
 	macd := df.Metadata["macd"]
 	macdSig := df.Metadata["macdSignal"]
