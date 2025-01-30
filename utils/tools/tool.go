@@ -49,7 +49,7 @@ func ParseTimeframeToDuration(tf string) (time.Duration, error) {
 	case "5m":
 		return 5 * time.Minute, nil
 	case "10m":
-		return 10 * time.Second, nil
+		return 10 * time.Minute, nil
 	case "15m":
 		return 15 * time.Minute, nil
 	case "30m":
