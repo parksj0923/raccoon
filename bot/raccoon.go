@@ -2,7 +2,6 @@ package bot
 
 import (
 	"fmt"
-	"raccoon/chartview"
 	"raccoon/consumer"
 	"raccoon/exchange"
 	"raccoon/feed"
@@ -120,9 +119,6 @@ func (r *Raccoon) Start() {
 
 	// 1) Upbit websocket 시작
 	r.exchange.Start()
-
-	go chartview.StartChartServer(":8080")
-	log.Infof("Raccoon started. Open http://localhost:8080/chart to see chart!")
 
 	// 2) DataFeedSubscription -> Start
 	//    -> Websocket 수신된 Candle -> 구독자에 전달(= controller.OnCandle)
