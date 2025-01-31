@@ -9,6 +9,7 @@ import (
 	"raccoon/strategy"
 	"raccoon/utils/log"
 	"raccoon/utils/tools"
+	"raccoon/webserver"
 	"time"
 )
 
@@ -19,9 +20,7 @@ type Raccoon struct {
 	orderFeedSub       *feed.OrderFeedSubscription // 주문 신호 발행/구독
 	strat              interfaces.Strategy         // 실제 트레이딩 전략
 	strategyController *strategy.Controller        // StrategyController
-
-	dataFeedConsumer  *consumer.DataFeedConsumer
-	orderFeedConsumer *consumer.OrderFeedConsumer
+	webServ            *webserver.WebServer        // 차트 그리기 위한 웹서버
 }
 
 // NewRaccoon : Raccoon 인스턴스 생성
@@ -44,12 +43,16 @@ func NewRaccoon(apiKey, secretKey string, pairs []string) (*Raccoon, error) {
 	strat := strategy.NewPSHStrategy(orderFeedSub)
 	ctrl := strategy.NewStrategyController(pairs[0], strat, upbit)
 
+	// 5) Web Server
+	webServ := webserver.NewWebServer()
+
 	return &Raccoon{
 		exchange:           upbit,
 		dataFeedSub:        dataFeedSub,
 		orderFeedSub:       orderFeedSub,
 		strat:              strat,
 		strategyController: ctrl,
+		webServ:            webServ,
 	}, nil
 }
 
@@ -62,16 +65,25 @@ func (r *Raccoon) SetupSubscriptions() {
 	timeframe := r.strat.Timeframe()
 	warmup := r.strat.WarmupPeriod()
 
-	dataFeedCosumer := consumer.NewDataFeedConsumer(r.strategyController)
+	consumerStrategy := consumer.NewDataFeedConsumerStrategy(r.strategyController)
 	r.dataFeedSub.Subscribe(
 		pair,
 		timeframe,
-		dataFeedCosumer.OnCandle,
+		consumerStrategy.OnCandle,
 		true, // onCandleClose = true → 완성된 봉만 콜백
 	)
 
-	orderFeedConsumer := consumer.NewOrderFeedConsumer(r.exchange)
-	r.orderFeedSub.Subscribe(pair, orderFeedConsumer.OnOrder)
+	r.dataFeedSub.Subscribe(
+		pair,
+		timeframe,
+		r.webServ.OnCandle,
+		false,
+	)
+
+	consumerBroker := consumer.NewOrderFeedConsumerBroker(r.exchange)
+	r.orderFeedSub.Subscribe(pair, consumerBroker.OnOrder)
+
+	r.orderFeedSub.Subscribe(pair, r.webServ.OnOrder)
 
 	// -------------------------------------------
 	// 미리 WarmupPeriod만큼의 과거캔들 Preload
@@ -130,6 +142,14 @@ func (r *Raccoon) Start() {
 
 	// 4) StrategyController 시작(이제부터 OnCandle 시 strategy.OnCandle 도 수행)
 	r.strategyController.Start()
+
+	// 5) Web server start
+	go func() {
+		err := r.webServ.Start(":8080")
+		if err != nil {
+			log.Error("Webserver error:", err)
+		}
+	}()
 
 	log.Infof("Raccoon started.")
 }

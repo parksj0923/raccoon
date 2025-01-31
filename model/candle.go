@@ -3,18 +3,18 @@ package model
 import "time"
 
 type Candle struct {
-	Pair      string
-	Time      time.Time
-	UpdatedAt time.Time
-	Open      float64
-	Close     float64
-	Low       float64
-	High      float64
-	Volume    float64
-	Complete  bool
+	Pair      string    `json:"pair,omitempty"`
+	Time      time.Time `json:"time"`
+	UpdatedAt time.Time `json:"updatedAt"`
+	Open      float64   `json:"open"`
+	Close     float64   `json:"close"`
+	Low       float64   `json:"low"`
+	High      float64   `json:"high"`
+	Volume    float64   `json:"volume"`
+	Complete  bool      `json:"complete"`
 
 	// Aditional collums from CSV inputs
-	Metadata map[string]float64
+	Metadata map[string]float64 `json:"metadata,omitempty"`
 }
 
 type WSCandleBase struct {

@@ -13,7 +13,7 @@ import (
 )
 
 // TestPSHStrategy_Integration 는
-// PSHStrategy.OnCandle() -> orderFeed.Publish -> OrderFeedConsumer.OnOrder -> mockExchange.CreateOrderMarket
+// PSHStrategy.OnCandle() -> orderFeed.Publish -> OrderFeedConsumerBroker.OnOrder -> mockExchange.CreateOrderMarket
 // 이렇게 전체 플로우가 도는지 통합 테스트합니다.
 func TestPSHStrategy_Integration(t *testing.T) {
 	// 1) Mock Exchange 준비
@@ -23,7 +23,7 @@ func TestPSHStrategy_Integration(t *testing.T) {
 
 	// 2) OrderFeedSubscription + Consumer
 	orderFeedSub := feed.NewOrderFeed()
-	ofc := consumer.NewOrderFeedConsumer(mockEx)
+	ofc := consumer.NewOrderFeedConsumerBroker(mockEx)
 
 	// pair="KRW-DOGE"로 등록해야 Publish(pair="KRW-DOGE")가 콜백으로 간다
 	orderFeedSub.Subscribe("KRW-DOGE", ofc.OnOrder)
@@ -56,7 +56,7 @@ func TestPSHStrategy_Integration(t *testing.T) {
 	// 5) OnCandle() 호출
 	s.OnCandle(df, mockEx)
 
-	// 6) OrderFeedConsumer는 Publish된 주문을 처리 -> mockEx.CreateOrderMarket
+	// 6) OrderFeedConsumerBroker는 Publish된 주문을 처리 -> mockEx.CreateOrderMarket
 	//    비동기로 처리한다면 잠시 time.Sleep(100*time.Millisecond) 정도 기다려도 되고,
 	//    기본적으로 feed.OrderFeed에 버퍼가 있으면 바로 호출될 겁니다.
 
@@ -87,7 +87,7 @@ func TestPSHStrategy_Flow_AfterPreloadAndNewData(t *testing.T) {
 
 	// 2) OrderFeedSubscription
 	orderFeed := feed.NewOrderFeed()
-	ofc := consumer.NewOrderFeedConsumer(mockEx)
+	ofc := consumer.NewOrderFeedConsumerBroker(mockEx)
 	orderFeed.Subscribe("KRW-DOGE", ofc.OnOrder)
 
 	// 3) PSHStrategy + Controller
@@ -96,7 +96,7 @@ func TestPSHStrategy_Flow_AfterPreloadAndNewData(t *testing.T) {
 
 	// 4) DataFeedSubscription
 	dataFeed := feed.NewDataFeed(mockEx)
-	dfConsumer := consumer.NewDataFeedConsumer(ctrl)
+	dfConsumer := consumer.NewDataFeedConsumerStrategy(ctrl)
 	// onCandleClose=true -> Complete=true 봉만 전달
 	dataFeed.Subscribe("KRW-DOGE", "1m", dfConsumer.OnCandle, true)
 

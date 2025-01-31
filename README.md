@@ -28,7 +28,7 @@ OnCandle에서 “50봉(혹은 60봉) 이후부터 매매” / 단순 시그널 
 
 OrderFeed
 
-실제 Broker 체결 로직은 OrderFeedConsumer.OnOrder
+실제 Broker 체결 로직은 OrderFeedConsumerBroker.OnOrder
 메시지큐-like 구조로, 전략과 체결 로직을 분리
 
 Controller
@@ -48,7 +48,7 @@ SetupSubscriptions()에서 Preload + Subscribe 설정
 Start()/Stop()에서 DataFeedSub, OrderFeedSub, Exchange 모두 구동/종료
 
 consumer 패키지
-DataFeedConsumer(Controller.OnCandle로 전달) / OrderFeedConsumer(Broker CreateOrder*로 체결)
+DataFeedConsumer(Controller.OnCandle로 전달) / OrderFeedConsumerBroker(Broker CreateOrder*로 체결)
 
 feed.DataFeedSubscription
 onCandleClose 옵션

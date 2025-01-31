@@ -3,6 +3,7 @@ package interfaces
 import (
 	"raccoon/indicator"
 	"raccoon/model"
+	"raccoon/webserver"
 	"time"
 )
 
@@ -53,4 +54,11 @@ type HighFrequencyStrategy interface {
 
 	// OnPartialCandle will be executed for each new partial candle, after indicators are filled.
 	OnPartialCandle(df *model.Dataframe, broker Broker)
+}
+
+type WebServer interface {
+	OnCandle(candle model.Candle)
+	OnOrder(order model.Order)
+	OnIndicators(timestamp time.Time, values []webserver.IndicatorValue)
+	Start(port string) error
 }

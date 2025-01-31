@@ -5,16 +5,16 @@ import (
 	"raccoon/strategy"
 )
 
-type DataFeedConsumer struct {
+type DataFeedConsumerStrategy struct {
 	strategyController *strategy.Controller
 }
 
-func NewDataFeedConsumer(controller *strategy.Controller) *DataFeedConsumer {
-	return &DataFeedConsumer{
+func NewDataFeedConsumerStrategy(controller *strategy.Controller) *DataFeedConsumerStrategy {
+	return &DataFeedConsumerStrategy{
 		strategyController: controller,
 	}
 }
 
-func (c *DataFeedConsumer) OnCandle(candle model.Candle) {
+func (c *DataFeedConsumerStrategy) OnCandle(candle model.Candle) {
 	c.strategyController.OnCandle(candle)
 }

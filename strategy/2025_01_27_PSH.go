@@ -77,7 +77,7 @@ func (s *PSHStrategy) Indicators(df *model.Dataframe) []indicator.ChartIndicator
 				},
 			},
 			Overlay:   true,
-			GroupName: "PSHIndicators",
+			GroupName: "SMA",
 			Warmup:    s.WarmupPeriod(),
 		},
 		{
@@ -144,6 +144,26 @@ func (s *PSHStrategy) Indicators(df *model.Dataframe) []indicator.ChartIndicator
 			},
 			Overlay:   true, // 볼린저밴드는 보통 종가 위 오버레이
 			GroupName: "RSI",
+			Warmup:    s.WarmupPeriod(),
+		},
+		{
+			Time: df.Time,
+			Metrics: []indicator.IndicatorMetric{
+				{
+					Name:   "stochK",
+					Color:  "red",
+					Style:  indicator.StyleLine,
+					Values: df.Metadata["stochK"],
+				},
+				{
+					Name:   "stochD",
+					Color:  "blue",
+					Style:  indicator.StyleLine,
+					Values: df.Metadata["stochD"],
+				},
+			},
+			Overlay:   true,
+			GroupName: "Stochastic",
 			Warmup:    s.WarmupPeriod(),
 		},
 	}

@@ -9,18 +9,18 @@ import (
 	"raccoon/mocks" // 방금 만든 mock_exchange.go가 들어있는 package
 )
 
-// TestOrderFeedConsumer_BuyMarketPrice
+// TestOrderFeedConsumerBroker_BuyMarketPrice
 //   - "시장가 매수" (Upbit: side=buy, type=price, quantity=KRW금액)를 넣었을 때
 //     mockExchange가 CreateOrderMarket(...)을 정말 호출하는지 검증
-func TestOrderFeedConsumer_BuyMarketPrice(t *testing.T) {
+func TestOrderFeedConsumerBroker_BuyMarketPrice(t *testing.T) {
 	// 1) Mock Broker 세팅
 	mockEx := &mocks.MockExchange{
 		// 초기 잔고 10만원
 		MockKrw: 100000,
 	}
 
-	// 2) OrderFeedConsumer 생성
-	ofc := consumer.NewOrderFeedConsumer(mockEx)
+	// 2) OrderFeedConsumerBroker 생성
+	ofc := consumer.NewOrderFeedConsumerBroker(mockEx)
 
 	// 3) "시장가 매수" 주문 객체 (type=OrderTypePrice, Price=KRW금액)
 	buyOrder := model.Order{
