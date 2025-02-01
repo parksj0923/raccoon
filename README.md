@@ -58,3 +58,6 @@ Preload 시 이미 Complete=true 봉만 한꺼번에 전달
 CandleAggregator
 1초봉 -> 부분봉(Partial) / 주기 경계 시 완성봉(Final)
 buffer에서 removeOldSeconds, aggregateBuffer 등 → 중복/누락 관리.
+
+nohup caffeinate -i ./raccoon > raccoon.log 2>&1 &
+
