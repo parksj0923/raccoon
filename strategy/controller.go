@@ -1,15 +1,19 @@
 package strategy
 
 import (
+	"raccoon/indicator"
 	"raccoon/interfaces"
 	"raccoon/model"
 	"raccoon/utils/log"
+	"raccoon/webserver"
+	"time"
 )
 
 type Controller struct {
 	Strategy  interfaces.Strategy
 	Dataframe *model.Dataframe
 	Broker    interfaces.Broker
+	WebServer interfaces.WebServer
 	started   bool
 }
 
@@ -65,14 +69,42 @@ func (c *Controller) OnCandle(candle model.Candle) {
 
 	if len(c.Dataframe.Close) >= c.Strategy.WarmupPeriod() {
 		sample := c.Dataframe.Sample(c.Strategy.WarmupPeriod())
-		c.Strategy.Indicators(&sample)
+		chartIndics := c.Strategy.Indicators(&sample)
 
 		if c.started {
 			c.Strategy.OnCandle(&sample, c.Broker)
+
+			results, timestamp := makeChartIndicators(&sample, chartIndics)
+			if c.WebServer != nil && len(results) > 0 {
+				c.WebServer.OnIndicators(timestamp, results)
+			}
 		}
 	}
 }
 
 func (c *Controller) OnPartialCandle(candle model.Candle) {
 	//TODO 파셜 받았을떄 해야함
+}
+
+func makeChartIndicators(sample *model.Dataframe, chartIndics []indicator.ChartIndicator) ([]webserver.IndicatorValue, time.Time) {
+	lastIndex := sample.Close.Length() - 1
+	timestamp := sample.Time[lastIndex] // 마지막 봉 시각
+
+	// IndicatorValue : "지표 이름" + "지표 값"
+	var results []webserver.IndicatorValue
+
+	for _, ci := range chartIndics {
+		// ci.Metrics : 여러 라인(예: MACD, MACD Signal, MACD Hist)
+		for _, metric := range ci.Metrics {
+			// metric.Values : model.Series[float64], 길이= dfSample.Close.Length()
+			if metric.Values.Length() > lastIndex {
+				val := metric.Values[lastIndex]
+				results = append(results, webserver.IndicatorValue{
+					Name:  metric.Name,
+					Value: val,
+				})
+			}
+		}
+	}
+	return results, timestamp
 }
