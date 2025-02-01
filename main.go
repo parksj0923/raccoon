@@ -21,9 +21,6 @@ func main() {
 		log.Fatal(err)
 	}
 
-	// 3) DataFeed / OrderFeed 구독 설정
-	raccoon.SetupSubscriptions()
-
 	// 4) Start
 	raccoon.Start()
 
