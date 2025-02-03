@@ -11,54 +11,46 @@ type AccountResponse struct {
 	UnitCurrency string `json:"unit_currency"` // 기준 화폐 (e.g., KRW)
 }
 
-type OrderChangeQParam struct {
-	Market string `json:"market"`
-}
-
 type SingleOrderQParam struct {
 	Uuid       string `json:"uuid"`
 	Identifier string `json:"identifier"`
 }
 
-type OrderChanceResponse struct {
-	BidFee      string `json:"bid_fee"`
-	AskFee      string `json:"ask_fee"`
-	MakerBidFee string `json:"maker_bid_fee"`
-	MakerAskFee string `json:"maker_ask_fee"`
-	Market      struct {
-		ID         string   `json:"id"`
-		Name       string   `json:"name"`
-		OrderTypes []string `json:"order_types"`
-		OrderSides []string `json:"order_sides"`
-		BidTypes   []string `json:"bid_types"`
-		AskTypes   []string `json:"ask_types"`
-		Bid        struct {
-			Currency string `json:"currency"`
-			MinTotal string `json:"min_total"`
-		} `json:"bid"`
-		Ask struct {
-			Currency string `json:"currency"`
-			MinTotal string `json:"min_total"`
-		} `json:"ask"`
-		MaxTotal string `json:"max_total"`
-		State    string `json:"state"`
-	} `json:"market"`
-	BidAccount struct {
-		Currency            string `json:"currency"`
-		Balance             string `json:"balance"`
-		Locked              string `json:"locked"`
-		AvgBuyPrice         string `json:"avg_buy_price"`
-		AvgBuyPriceModified bool   `json:"avg_buy_price_modified"`
-		UnitCurrency        string `json:"unit_currency"`
-	} `json:"bid_account"`
-	AskAccount struct {
-		Currency            string `json:"currency"`
-		Balance             string `json:"balance"`
-		Locked              string `json:"locked"`
-		AvgBuyPrice         string `json:"avg_buy_price"`
-		AvgBuyPriceModified bool   `json:"avg_buy_price_modified"`
-		UnitCurrency        string `json:"unit_currency"`
-	} `json:"ask_account"`
+type OrderMin struct {
+	Currency string `json:"currency"`
+	MinTotal string `json:"min_total"`
+}
+
+type Market struct {
+	ID         string   `json:"id"`
+	Name       string   `json:"name"`
+	OrderTypes []string `json:"order_types"`
+	OrderSides []string `json:"order_sides"`
+	BidTypes   []string `json:"bid_types"`
+	AskTypes   []string `json:"ask_types"`
+	Bid        OrderMin `json:"bid"`
+	Ask        OrderMin `json:"ask"`
+	MaxTotal   string   `json:"max_total"`
+	State      string   `json:"state"`
+}
+
+type OrderAccount struct {
+	Currency            string `json:"currency"`
+	Balance             string `json:"balance"`
+	Locked              string `json:"locked"`
+	AvgBuyPrice         string `json:"avg_buy_price"`
+	AvgBuyPriceModified bool   `json:"avg_buy_price_modified"`
+	UnitCurrency        string `json:"unit_currency"`
+}
+
+type OrderChance struct {
+	BidFee      string       `json:"bid_fee"`
+	AskFee      string       `json:"ask_fee"`
+	MakerBidFee string       `json:"maker_bid_fee"`
+	MakerAskFee string       `json:"maker_ask_fee"`
+	Market      Market       `json:"market"`
+	BidAccount  OrderAccount `json:"bid_account"`
+	AskAccount  OrderAccount `json:"ask_account"`
 }
 
 // OrderResponse : 주문 생성/취소/조회 시 반환되는 객체
@@ -119,10 +111,6 @@ type CreateOrderRequest struct {
 	OrdType     OrderType       `json:"ord_type"`                // "limit", "price", "market", "best"
 	Identifier  string          `json:"identifier"`              // (옵션) 주문 식별 값
 	TimeInForce TimeInForceType `json:"time_in_force,omitempty"` // "ioc", "fok" (옵션)
-}
-
-type Market struct {
-	IsDetails bool `json:"isDetails"`
 }
 
 // MarketResponse : 종목 코드 조회 결과

@@ -36,6 +36,15 @@ func Test_GetAccount(t *testing.T) {
 	fmt.Println(account)
 }
 
+func Test_OrderChance(t *testing.T) {
+	upbit, err := exchange.NewUpbit(apiKey, secretKey, pairs)
+	if err != nil {
+		t.Error(err)
+	}
+	chance, err := upbit.OrderChance("KRW-XRP")
+	fmt.Printf("%#v", chance)
+}
+
 func Test_CandlesByLimit(t *testing.T) {
 	upbit, err := exchange.NewUpbit(apiKey, secretKey, pairs)
 	if err != nil {
