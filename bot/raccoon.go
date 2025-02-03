@@ -145,7 +145,7 @@ func (r *Raccoon) Start() {
 
 	// 5) Web server start
 	go func() {
-		err := r.webServ.Start(":8080")
+		err := r.webServ.Start(":3030")
 		if err != nil {
 			log.Error("Webserver error:", err)
 		}
