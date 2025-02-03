@@ -127,15 +127,18 @@ func (r *Raccoon) Start() {
 	r.SetupSubscriptions()
 
 	account, err := r.exchange.Account()
+	var accountInfoMsg string
 	if err != nil {
 		log.Errorf("Failed to fetch account info: %v", err)
+		accountInfoMsg = fmt.Sprintf("Failed to fetch account info: %v", err)
 	} else {
-		log.Infof("=== [Account Info] ===")
+		accountInfoMsg = "=== [Account Info] ===\n"
 		for _, b := range account.Balances {
-			log.Infof("Currency=%s, balance=%.4f, locked=%.4f, avgBuyPrice=%.4f",
+			accountInfoMsg += fmt.Sprintf("Currency=%s, balance=%.4f, locked=%.4f, avgBuyPrice=%.4f\n",
 				b.Currency, b.Balance, b.Locked, b.AvgBuyPrice)
 		}
 	}
+	log.Infof(accountInfoMsg)
 
 	// 1) Upbit websocket 시작
 	r.exchange.Start()
@@ -159,6 +162,13 @@ func (r *Raccoon) Start() {
 		}
 	}()
 
+	if r.notifier != nil {
+		notifyMsg := fmt.Sprintf("Raccoon started successfully.\n%s", accountInfoMsg)
+		if err := r.notifier.SendNotification(notifyMsg); err != nil {
+			log.Errorf("Start notification error: %v", err)
+		}
+	}
+
 	log.Infof("Raccoon started.")
 }
 
@@ -176,7 +186,27 @@ func (r *Raccoon) Stop() {
 	r.orderFeedSub.Stop()
 
 	// 3) Upbit 정지(WS close)
+
+	account, err := r.exchange.Account()
+	var accountInfoMsg string
+	if err != nil {
+		accountInfoMsg = fmt.Sprintf("Failed to fetch account info: %v", err)
+	} else {
+		accountInfoMsg = "=== [Account Info] ===\n"
+		for _, b := range account.Balances {
+			accountInfoMsg += fmt.Sprintf("Currency=%s, balance=%.4f, locked=%.4f, avgBuyPrice=%.4f\n",
+				b.Currency, b.Balance, b.Locked, b.AvgBuyPrice)
+		}
+	}
+
 	r.exchange.Stop()
+
+	if r.notifier != nil {
+		notifyMsg := fmt.Sprintf("Raccoon stopped.\n%s", accountInfoMsg)
+		if err := r.notifier.SendNotification(notifyMsg); err != nil {
+			log.Errorf("Stop notification error: %v", err)
+		}
+	}
 
 	log.Infof("Raccoon stopped.")
 }
