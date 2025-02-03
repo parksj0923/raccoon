@@ -35,7 +35,10 @@ type DataFeeder interface {
 	Stop()
 }
 
-type Notifier interface{}
+type Notifier interface {
+	SendNotification(message string) error
+	OrderNotifier(order model.Order, err error)
+}
 
 type Strategy interface {
 	// Timeframe is the time interval in which the strategy will be executed. eg: 1h, 1d, 1w

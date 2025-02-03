@@ -6,6 +6,7 @@ import (
 	"raccoon/exchange"
 	"raccoon/feed"
 	"raccoon/interfaces"
+	"raccoon/model"
 	"raccoon/strategy"
 	"raccoon/utils/log"
 	"raccoon/utils/tools"
@@ -21,6 +22,7 @@ type Raccoon struct {
 	strat              interfaces.Strategy         // 실제 트레이딩 전략
 	strategyController *strategy.Controller        // StrategyController
 	webServ            *webserver.WebServer        // 차트 그리기 위한 웹서버
+	notifier           interfaces.Notifier
 }
 
 // NewRaccoon : Raccoon 인스턴스 생성
@@ -84,6 +86,12 @@ func (r *Raccoon) SetupSubscriptions() {
 	r.orderFeedSub.Subscribe(pair, consumerBroker.OnOrder)
 
 	r.orderFeedSub.Subscribe(pair, r.webServ.OnOrder)
+
+	if r.notifier != nil {
+		consumerBroker.AddOrderExecutedCallback(func(order model.Order, err error) {
+			r.notifier.OrderNotifier(order, err)
+		})
+	}
 
 	// -------------------------------------------
 	// 미리 WarmupPeriod만큼의 과거캔들 Preload
@@ -171,4 +179,8 @@ func (r *Raccoon) Stop() {
 	r.exchange.Stop()
 
 	log.Infof("Raccoon stopped.")
+}
+
+func (r *Raccoon) SetNotifier(notifier interfaces.Notifier) {
+	r.notifier = notifier
 }
