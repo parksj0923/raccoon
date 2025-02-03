@@ -56,6 +56,10 @@ func (m *MockExchange) Account() (model.Asset, error) {
 	}, nil
 }
 
+func (m *MockExchange) OrderChance(pair string) (*model.OrderChance, error) {
+	panic("implement me")
+}
+
 // Position: (pair="KRW-DOGE" 가정) => (코인 수량, KRW 잔고, 코인 평균매수가) 리턴
 func (m *MockExchange) Position(pair string) (base, quote, avgBuyPrice float64, err error) {
 	// 간단히 "KRW-DOGE"만 처리

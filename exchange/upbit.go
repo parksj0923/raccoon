@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"raccoon/utils/collection"
 	"raccoon/utils/resty"
 	"raccoon/utils/tools"
@@ -86,7 +87,7 @@ func NewUpbit(apiKey, secretKey string, pairs []string) (*Upbit, error) {
 	log.Info("[SETUP] Using Upbit exchange with pre-fetched pairs")
 	for _, pair := range pairs {
 		pair = strings.ToUpper(pair) // "KRW-BTC"
-		chance, err := up.fetchChance(pair)
+		chance, err := up.OrderChance(pair)
 		if err != nil {
 			log.Errorf("[UPBIT] Failed to fetch upbit exchange pair %s: %v", pair, err)
 			continue
@@ -155,6 +156,24 @@ func (u *Upbit) Position(pair string) (asset, quote, avgBuyPrice float64, err er
 	return baseBal, quoteBal, avgBuyPriceBal, nil
 }
 
+func (u *Upbit) OrderChance(pair string) (*model.OrderChance, error) {
+	params := map[string]interface{}{
+		"market": pair,
+	}
+	body, err := u.requestUpbitGET(u.ctx, "/v1/orders/chance", params)
+	if err != nil {
+		return nil, err
+	}
+	var resp model.OrderChance
+	if e := json.Unmarshal(body, &resp); e != nil {
+		return nil, e
+	}
+	if resp.Market.ID == "" {
+		return nil, errors.New("invalid chance response")
+	}
+	return &resp, nil
+}
+
 func (u *Upbit) Order(pair string, uuidOrIdentifier string, isIdentifier bool) (model.Order, error) {
 	params := map[string]interface{}{}
 	if isIdentifier {
@@ -198,14 +217,18 @@ func (u *Upbit) ClosedOrders(pair string, limit int) ([]model.Order, error) {
 	return nil, errors.New("not implemented: Upbit orders list")
 }
 
+// CreateOrderLimit 수정: 주문 가격(limit)을 새 정책에 맞게 validatePrice 함수로 보정합니다.
 func (u *Upbit) CreateOrderLimit(side model.SideType, pair string,
 	quantity float64, limit float64, tif ...model.TimeInForceType) (model.Order, error) {
-	// Upbit: ord_type=limit, side=(bid|ask), price=limit, volume=quantity, tif(optional)=(ioc|fok)
+
+	// 새 호가 정책에 따라 주문 가격 내림 처리
+	validPrice := validatePrice(limit, pair)
+
 	params := map[string]interface{}{
 		"market":   pair,
 		"side":     string(side),
 		"ord_type": string(model.OrderTypeLimit),
-		"price":    floatToString(limit),
+		"price":    floatToString(validPrice),
 		"volume":   floatToString(quantity),
 	}
 	if len(tif) == 1 {
@@ -226,11 +249,20 @@ func (u *Upbit) CreateOrderMarket(side model.SideType, pair string, quantity flo
 	// Upbit 시장가 매수 => ord_type="price", side="bid", quantity = price=금액, volume=""
 	// Upbit 시장가 매도 => ord_type="market", side="ask", quantity = volume=수량, price=""
 	if side == model.SideTypeBuy {
+		feeRate, err := u.getFeeRateForOrder(pair, side, true)
+		if err != nil {
+			log.Errorf("[Upbit] getFeeRateForOrder failed: %v", err)
+			return model.Order{}, fmt.Errorf("수수료율 조회 실패: %w", err)
+		}
+		effectiveAmount := quantity / (1 + feeRate)
+		validPrice := validatePrice(effectiveAmount, pair)
+		log.Infof("[Upbit] 매수 주문 전: 금액=%.2f, feeRate=%.5f, 실제 주문금액=%.2f", quantity, feeRate, validPrice)
+
 		params := map[string]interface{}{
 			"market":   pair,
 			"side":     string(side),
 			"ord_type": string(model.OrderTypePrice),
-			"price":    floatToString(quantity),
+			"price":    floatToString(validPrice),
 		}
 		body, err := u.requestUpbitPOST(u.ctx, "/v1/orders", params)
 		if err != nil {
@@ -315,7 +347,7 @@ func (u *Upbit) AssetsInfo(pair string) model.AssetInfo {
 	if info, ok := u.assetsInfo[pair]; ok {
 		return info
 	}
-	resp, err := u.fetchChance(pair)
+	resp, err := u.OrderChance(pair)
 	if err != nil {
 		return model.AssetInfo{}
 	}
@@ -1076,25 +1108,7 @@ func floatToString(f float64) string {
 	return strconv.FormatFloat(f, 'f', -1, 64)
 }
 
-func (u *Upbit) fetchChance(pair string) (*model.OrderChanceResponse, error) {
-	params := map[string]interface{}{
-		"market": pair,
-	}
-	body, err := u.requestUpbitGET(u.ctx, "/v1/orders/chance", params)
-	if err != nil {
-		return nil, err
-	}
-	var resp model.OrderChanceResponse
-	if e := json.Unmarshal(body, &resp); e != nil {
-		return nil, e
-	}
-	if resp.Market.ID == "" {
-		return nil, errors.New("invalid chance response")
-	}
-	return &resp, nil
-}
-
-func convertChanceToAssetInfo(ch *model.OrderChanceResponse) (model.AssetInfo, error) {
+func convertChanceToAssetInfo(ch *model.OrderChance) (model.AssetInfo, error) {
 	// 예: MinTotal = "5000" (KRW)
 	minQuote, _ := strconv.ParseFloat(ch.Market.Bid.MinTotal, 64)
 	maxQuote, _ := strconv.ParseFloat(ch.Market.MaxTotal, 64)
@@ -1124,4 +1138,106 @@ func convertChanceToAssetInfo(ch *model.OrderChanceResponse) (model.AssetInfo, e
 		QuotePrecision:     2,
 		BaseAssetPrecision: 8,
 	}, nil
+}
+
+// validatePrice는 새 호가 정책(2024-10-14 기준)에 따라 주문 가격을 내림(floor) 처리합니다.
+// 가격 구간별 주문 단위는 아래와 같습니다:
+//
+// 2,000,000 이상                        : 1,000
+// 1,000,000 이상 ~ 2,000,000 미만       : 500
+// 500,000 이상 ~ 1,000,000 미만         : 100
+// 100,000 이상 ~ 500,000 미만           : 50
+// 10,000 이상 ~ 100,000 미만            : 10
+// 1,000 이상 ~ 10,000 미만              : 1
+// 100 이상 ~ 1,000 미만 (일반)           : 0.1
+// 100 이상 ~ 1,000 미만 (특별종목)         : 1
+// 10 이상 ~ 100 미만                    : 0.01
+// 1 이상 ~ 10 미만                      : 0.001
+// 0.1 이상 ~ 1 미만                     : 0.0001
+// 0.01 이상 ~ 0.1 미만                  : 0.00001
+// 0.001 이상 ~ 0.01 미만                : 0.000001
+// 0.0001 이상 ~ 0.001 미만              : 0.0000001
+// 0.0001 미만                          : 0.00000001
+func validatePrice(price float64, pair string) float64 {
+	var unit float64
+	switch {
+	case price >= 2000000:
+		unit = 1000
+	case price >= 1000000:
+		unit = 500
+	case price >= 500000:
+		unit = 100
+	case price >= 100000:
+		unit = 50
+	case price >= 10000:
+		unit = 10
+	case price >= 1000:
+		unit = 1
+	case price >= 100:
+		// "100 이상 1,000 미만": 보통 단위는 0.1원이지만, 아래 특별 종목인 경우 1원 단위
+		if isSpecialPair(pair) {
+			unit = 1
+		} else {
+			unit = 0.1
+		}
+	case price >= 10:
+		unit = 0.01
+	case price >= 1:
+		unit = 0.001
+	case price >= 0.1:
+		unit = 0.0001
+	case price >= 0.01:
+		unit = 0.00001
+	case price >= 0.001:
+		unit = 0.000001
+	case price >= 0.0001:
+		unit = 0.0000001
+	default:
+		unit = 0.00000001
+	}
+
+	// 내림 처리: price - (price % unit)
+	return price - math.Mod(price, unit)
+}
+
+// isSpecialPair는 주문 가격 단위가 1원으로 적용되어야 하는 원화 마켓 종목인지 확인합니다.
+// Upbit에서 거래쌍은 "KRW-XXX" 형식이므로, base 통화(XXX)를 기준으로 판별합니다.
+func isSpecialPair(pair string) bool {
+	parts := strings.Split(pair, "-")
+	if len(parts) < 2 {
+		return false
+	}
+	base := parts[1]
+	// 특별 종목 목록 (2024.10.14부터 1원 단위 적용)
+	special := map[string]bool{
+		"ADA":  true,
+		"ALGO": true,
+		"BLUR": true,
+		"CELO": true,
+		"ELF":  true,
+		"EOS":  true,
+		"GRS":  true,
+		"GRT":  true,
+		"ICX":  true,
+		"MANA": true,
+		"MINA": true,
+		"POL":  true,
+		"SAND": true,
+		"SEI":  true,
+		"STG":  true,
+		"TRX":  true,
+	}
+	return special[base]
+}
+
+func (u *Upbit) getFeeRateForOrder(pair string, side model.SideType, discountEvent bool) (float64, error) {
+	baseFeeRate := 0.00139
+	if side == model.SideTypeBuy {
+		if discountEvent {
+			return 0.0005, nil
+		}
+		return baseFeeRate, nil
+	}
+	// 매도 주문은 보통 체결 금액에서 수수료가 차감되므로, 주문 전 계산에는 별도 조정이 필요없습니다.
+	return 0, nil
 }
