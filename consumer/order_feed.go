@@ -19,7 +19,8 @@ func NewOrderFeedConsumerBroker(exchange interfaces.Exchange) *OrderFeedConsumer
 }
 
 func (o *OrderFeedConsumerBroker) OnOrder(order model.Order) {
-	log.Infof("[OrderFeedConsumerBroker] Received order: %#v", order)
+	log.Infof("[OrderFeedConsumerBroker] Received order - Pair: %s, Side: %s, Type: %s, Quantity: %.2f",
+		order.Pair, order.Side, order.Type, order.Quantity)
 
 	// 실제 Broker 주문 실행
 	var err error
