@@ -1040,7 +1040,7 @@ func (u *Upbit) requestUpbitGET(ctx context.Context, path string, params map[str
 	if err != nil {
 		return nil, fmt.Errorf("API 호출 실패: %w", err)
 	}
-	if resp.StatusCode() != 200 {
+	if resp.StatusCode() != 200 || resp.StatusCode() != 201 {
 		return nil, fmt.Errorf("API 응답 오류: %d, %s", resp.StatusCode(), resp.String())
 	}
 
@@ -1066,7 +1066,7 @@ func (u *Upbit) requestUpbitPOST(ctx context.Context, path string, params map[st
 	if err != nil {
 		return nil, fmt.Errorf("API 호출 실패: %w", err)
 	}
-	if resp.StatusCode() != 200 {
+	if resp.StatusCode() != 200 || resp.StatusCode() != 201 {
 		return nil, fmt.Errorf("API 응답 오류: %d, %s", resp.StatusCode(), resp.String())
 	}
 
@@ -1096,7 +1096,7 @@ func (u *Upbit) requestUpbitDELETE(ctx context.Context, path string, params map[
 	if err != nil {
 		return nil, fmt.Errorf("API 호출 실패: %w", err)
 	}
-	if resp.StatusCode() != 200 {
+	if resp.StatusCode() != 200 || resp.StatusCode() != 201 {
 		return nil, fmt.Errorf("API 응답 오류: %d, %s", resp.StatusCode(), resp.String())
 	}
 

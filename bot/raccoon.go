@@ -141,6 +141,7 @@ func (r *Raccoon) Start() {
 	log.Infof(accountInfoMsg)
 
 	// 1) Upbit websocket 시작
+	//TODO private websocket 열어서 매매결과도 받아와야함
 	r.exchange.Start()
 
 	// 2) DataFeedSubscription -> Start
