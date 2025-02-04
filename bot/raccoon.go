@@ -42,7 +42,7 @@ func NewRaccoon(apiKey, secretKey string, pairs []string) (*Raccoon, error) {
 	orderFeedSub := feed.NewOrderFeed()
 
 	// 4) Strategy : 예시로 PSHStrategy
-	strat := strategy.NewPSHStrategy(orderFeedSub)
+	strat := strategy.NewImprovedPSHStrategy(orderFeedSub)
 	ctrl := strategy.NewStrategyController(pairs[0], strat, upbit)
 
 	// 5) Web Server
