@@ -10,6 +10,10 @@ import (
 // https://www.investopedia.com/articles/trading/08/turtle-trading.asp
 type Turtle struct{}
 
+func (e Turtle) GetName() string {
+	return "Turtle"
+}
+
 func (e Turtle) Timeframe() string {
 	return "4h"
 }

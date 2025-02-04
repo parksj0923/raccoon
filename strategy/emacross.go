@@ -9,6 +9,10 @@ import (
 
 type CrossEMA struct{}
 
+func (e CrossEMA) GetName() string {
+	return "CrossEMA"
+}
+
 func (e CrossEMA) Timeframe() string {
 	return "4h"
 }

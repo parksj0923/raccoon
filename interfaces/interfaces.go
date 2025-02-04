@@ -41,6 +41,7 @@ type Notifier interface {
 }
 
 type Strategy interface {
+	GetName() string
 	// Timeframe is the time interval in which the strategy will be executed. eg: 1h, 1d, 1w
 	Timeframe() string
 	// WarmupPeriod is the necessary time to wait before executing the strategy, to load data for indicators.

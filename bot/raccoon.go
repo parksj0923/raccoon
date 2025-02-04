@@ -126,20 +126,6 @@ func (r *Raccoon) Start() {
 
 	r.SetupSubscriptions()
 
-	account, err := r.exchange.Account()
-	var accountInfoMsg string
-	if err != nil {
-		log.Errorf("Failed to fetch account info: %v", err)
-		accountInfoMsg = fmt.Sprintf("Failed to fetch account info: %v", err)
-	} else {
-		accountInfoMsg = "=== [Account Info] ===\n"
-		for _, b := range account.Balances {
-			accountInfoMsg += fmt.Sprintf("Currency=%s, balance=%.4f, locked=%.4f, avgBuyPrice=%.4f\n",
-				b.Currency, b.Balance, b.Locked, b.AvgBuyPrice)
-		}
-	}
-	log.Infof(accountInfoMsg)
-
 	// 1) Upbit websocket 시작
 	//TODO private websocket 열어서 매매결과도 받아와야함
 	r.exchange.Start()
@@ -163,8 +149,27 @@ func (r *Raccoon) Start() {
 		}
 	}()
 
+	account, err := r.exchange.Account()
+	var accountInfoMsg string
+	if err != nil {
+		log.Errorf("Failed to fetch account info: %v", err)
+		accountInfoMsg = fmt.Sprintf("Failed to fetch account info: %v", err)
+	} else {
+		accountInfoMsg = "=== [Account Info] ===\n"
+		for _, b := range account.Balances {
+			accountInfoMsg += fmt.Sprintf("Currency=%s, balance=%.4f, locked=%.4f, avgBuyPrice=%.4f\n",
+				b.Currency, b.Balance, b.Locked, b.AvgBuyPrice)
+		}
+	}
+	log.Infof(accountInfoMsg)
+
+	strategyInfo := fmt.Sprintf("종목: %s\nTimeframe: %s\nStrategy: %s\n",
+		r.strategyController.Dataframe.Pair,
+		r.strat.Timeframe(),
+		r.strat.GetName())
+
 	if r.notifier != nil {
-		notifyMsg := fmt.Sprintf("Raccoon started successfully.\n%s", accountInfoMsg)
+		notifyMsg := fmt.Sprintf("Raccoon started successfully.\n%s\n%s", accountInfoMsg, strategyInfo)
 		if err := r.notifier.SendNotification(notifyMsg); err != nil {
 			log.Errorf("Start notification error: %v", err)
 		}

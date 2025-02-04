@@ -26,6 +26,9 @@ func NewTrailing(pairs []string) interfaces.HighFrequencyStrategy {
 
 	return strategy
 }
+func (t trailing) GetName() string {
+	return "TrailingStop"
+}
 
 func (t trailing) Timeframe() string {
 	return "4h"
