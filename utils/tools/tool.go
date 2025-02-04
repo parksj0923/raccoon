@@ -2,6 +2,7 @@ package tools
 
 import (
 	"fmt"
+	"raccoon/model"
 	"time"
 )
 
@@ -96,4 +97,19 @@ func TruncateKST(t time.Time, d time.Duration) (time.Time, error) {
 	truncated := midnight.Add(truncatedElapsed)
 
 	return truncated, nil
+}
+
+func DfToCandles(df *model.Dataframe) []model.Candle {
+	out := make([]model.Candle, len(df.Close))
+	for i := range df.Close {
+		out[i] = model.Candle{
+			Time:   df.Time[i],
+			Open:   df.Open[i],
+			High:   df.High[i],
+			Low:    df.Low[i],
+			Close:  df.Close[i],
+			Volume: df.Volume[i],
+		}
+	}
+	return out
 }

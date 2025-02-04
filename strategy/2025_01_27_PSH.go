@@ -7,6 +7,7 @@ import (
 	"raccoon/interfaces"
 	"raccoon/model"
 	"raccoon/utils/log"
+	"raccoon/utils/tools"
 )
 
 type PSHStrategy struct {
@@ -17,6 +18,10 @@ func NewPSHStrategy(orderFeed *feed.OrderFeedSubscription) *PSHStrategy {
 	return &PSHStrategy{
 		orderFeed: orderFeed,
 	}
+}
+
+func (s *PSHStrategy) GetName() string {
+	return "PSH"
 }
 
 // Timeframe : 일봉 기준
@@ -45,7 +50,7 @@ func (s *PSHStrategy) Indicators(df *model.Dataframe) []indicator.ChartIndicator
 		floatTrend[i] = float64(trendArr[i]) // Bullish=0, Bearish=1, Sideways=2 (enum-like)
 	}
 	df.Metadata["trend"] = floatTrend
-	allCandles := dfToCandles(df)
+	allCandles := tools.DfToCandles(df)
 
 	df.Metadata["shortMA"] = indicator.CustomEMA(allCandles, 10)
 	df.Metadata["longMA"] = indicator.CustomEMA(allCandles, 30)
@@ -369,20 +374,4 @@ func (s *PSHStrategy) OnCandle(df *model.Dataframe, broker interfaces.Broker) {
 			log.Infof("[PSHStrategy] 매수신호 -> 하지만 잔고가 충분하지 않음(잔고 %.2fKRW)", krwAmt)
 		}
 	}
-}
-
-// dfToCandles : DataFrame -> []model.Candle 변환 헬퍼
-func dfToCandles(df *model.Dataframe) []model.Candle {
-	out := make([]model.Candle, len(df.Close))
-	for i := range df.Close {
-		out[i] = model.Candle{
-			Time:   df.Time[i],
-			Open:   df.Open[i],
-			High:   df.High[i],
-			Low:    df.Low[i],
-			Close:  df.Close[i],
-			Volume: df.Volume[i],
-		}
-	}
-	return out
 }

@@ -14,7 +14,7 @@ func main() {
 	// 1) API 키
 	apiKey := os.Getenv("UPBIT_ACCESS_KEY")
 	secretKey := os.Getenv("UPBIT_SECRET_KEY")
-	pairs := []string{"KRW-DOGE"}
+	pairs := []string{"KRW-XRP"}
 	telegramToken := os.Getenv("TELEGRAM_BOT_TOKEN")
 	telegramChatID := os.Getenv("TELEGRAM_CHAT_ID")
 

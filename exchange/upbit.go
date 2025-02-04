@@ -486,7 +486,7 @@ func (u *Upbit) CandlesByPeriod(pair, period string, start, end time.Time) ([]mo
 			break
 		}
 		toTime = oldestTime
-		time.Sleep(1 * time.Second)
+		time.Sleep(500 * time.Millisecond)
 	}
 
 	collection.Sort(allCandles, func(a, b model.Candle) bool {
