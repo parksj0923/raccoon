@@ -16,7 +16,7 @@ func main() {
 	secretKey := os.Getenv("UPBIT_SECRET_KEY")
 	pairs := []string{"KRW-XRP"}
 	telegramToken := os.Getenv("TELEGRAM_BOT_TOKEN")
-	telegramChatID := os.Getenv("TELEGRAM_CHAT_ID")
+	telegramChatID := os.Getenv("TELEGRAM_GROUP_CHAT_ID")
 
 	// 2) Raccoon 인스턴스 생성
 	raccoon, err := bot.NewRaccoon(apiKey, secretKey, pairs)

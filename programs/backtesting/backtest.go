@@ -45,8 +45,8 @@ func processOrder(order model.Order, broker *exchange.BacktestBroker) {
 
 func main() {
 	// 설정: 거래쌍, 타임프레임, 백테스트 기간 등
-	pair := "KRW-XRP"
-	timeframe := "1m"
+	pair := "KRW-BTC"
+	timeframe := "5m"
 	KSTloc, _ := time.LoadLocation("Asia/Seoul")
 	start := time.Date(2025, time.January, 01, 00, 00, 0, 0, KSTloc)
 	end := time.Date(2025, time.February, 3, 00, 00, 0, 0, KSTloc)
