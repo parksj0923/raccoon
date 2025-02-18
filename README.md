@@ -1,63 +1,68 @@
-# raccoon
+# Raccoon Auto Trading Bot
+
+Raccoon은 [Upbit](https://upbit.com) 등 거래소 API를 활용하여 자동으로 암호화폐 거래를 수행하는 Go 언어 기반의 자동매매 프로그램입니다.
+
+---
+
+## 주요 기능
+
+- **실시간 데이터 피드 및 시세 구독**
+    - 거래소(Upbit 등)와 연동하여 실시간 캔들 데이터 및 주문 이벤트 수신
+    - 데이터 피드, 주문 피드를 별도의 구독 채널로 관리
+
+- **다양한 전략 및 지표 지원**
+    - 커스텀 전략을 통한 매매 신호 생성
+    - EMA, RSI, MACD, Bollinger Bands, ADX, ATR, OBV, MFI, CCI, StochRSI 등 [TA-Lib](https://github.com/markcheno/go-talib) 기반의 다양한 기술적 지표 계산
+    - 월별 추세 분석 등 커스텀 지표도 포함
+
+- **모의투자 및 백테스팅**
+    - 백테스트를 위한 `BackTestBroker` 구현
+    - 지정 기간의 과거 캔들 데이터를 로드하여 전략 시뮬레이션 가능
+
+- **웹 기반 모니터링**
+    - SSE(Server-Sent Events)를 이용하여 실시간 캔들, 지표, 주문 이벤트 전송
+    - Chart.js, Chart.js Financial 플러그인을 활용한 웹 차트 제공 (가격, 거래량, 주문, 지표)
+
+- **알림 기능**
+    - Telegram을 통한 주문 실행 결과(성공/실패) 알림 전송
+
+- **모듈화된 아키텍처**
+    - Exchange, Feed, Indicator, Strategy, WebServer 등 각 기능별로 모듈화된 패키지 구성
+    - 인터페이스를 통해 실제 거래소 API와 모의 거래(MockExchange) 모두를 지원
+
+---
+
+## 프로젝트 구조
+
+```plaintext
+Raccoon/
+├── exchange/           # 거래소 연동 관련 코드 (Upbit, BackTestBroker 등)
+├── feed/               # 실시간 시세, 주문 피드 구독 및 퍼블리시 기능
+├── consumer/           # 피드에서 전달된 캔들 및 주문 데이터를 소비(처리)하는 로직을 포함  
+│                        - 전략 컨트롤러, 웹서버 등으로 데이터를 전달하여 후속 처리를 진행
+├── indicator/          # 기술적 지표 계산 (go-talib 기반)
+├── strategy/           # 자동매매 전략 및 전략 컨트롤러 (ImprovedPSHStrategy 등)
+├── webserver/          # 웹 차트, SSE 서버 등 모니터링 기능
+├── mocks/              # 인터페이스(MockExchange 등) 테스트용 모의 구현체
+├── model/              # 데이터 구조체 (Candle, Order, Account, 등)
+├── notification/       # Telegram 알림 기능 구현
+├── utils/              # 유틸리티(로깅, 에러 처리, 기타 도구)
+└── main.go             # 백테스트 실행 또는 봇 실행 진입점
+```
+
+## 실행방법
+**환경변수 설정**
+```shell
+ export UPBIT_ACCESS_KEY=your_upbit_access_key
+ export UPBIT_SECRET_KEY=your_upbit_secret_key
+ export TELEGRAM_BOT_TOKEN=your_telegram_bot_token
+ export TELEGRAM_CHAT_ID=your_telegram_chat_id
+```
+**실행**
+```shell
+ go build -o raccoon
+ ./raccoon
+```
 
 
-# 기능 
-
-WarmupPeriod Preload
-
-SetupSubscriptions()에서 
-    strat.Timeframe()
-    strat.WarmupPeriod()를 통해 계산한 뒤 
-    exchange.CandlesByPeriod(..., start, end)로 불러오고
-    dataFeedSub.Preload(...)에 넣음.
-프레임워크 구독자(Controller) 입장에서는 이미 완료된 과거 봉들을 한꺼번에 먼저 받게 되므로, \ WarmupPeriod()개 이상 로딩 시 바로 지표가 정상 계산 가능 → 굿.
-실시간봉(WebSocket) 수신 → 부분봉(Complete=false) + 완성봉(Complete=true) 둘 다 Emit
-
-handleCandle1s에서 push1sCandle 호출
-partial, final, isFinal := agg.push1sCandle(candle)
-agg.candleCh <- partial (if partial.Volume > 0)
-agg.candleCh <- final (if isFinal && final.Volume > 0)
-이로써 DataFeed 측에서 onCandleClose=false 구독자는 부분봉도 받고, onCandleClose=true 구독자는 완성봉만 받음.
-(현재 전략 컨트롤러는 완성봉만 사용 → onCandleClose=true)
-
-Strategy(PSHStrategy)
-
-Indicators()에서 월별추세, EMA, RSI, Bollinger, MACD 등을 계산 → df.Metadata[...]에 저장.
-OnCandle에서 “50봉(혹은 60봉) 이후부터 매매” / 단순 시그널 / OrderFeed.Publish
-
-
-OrderFeed
-
-실제 Broker 체결 로직은 OrderFeedConsumerBroker.OnOrder
-메시지큐-like 구조로, 전략과 체결 로직을 분리
-
-Controller
-
-Dataframe 누적 / WarmupPeriod 길이 만족 시 → Strategy.Indicators(...) + (started=true이면) → Strategy.OnCandle(...)
-
-프로그램 시작
-Preload(최소 WarmupPeriod만큼 과거 봉) → Controller가 이미 일정 봉수 있는 상태로 지표 계산
-WS 연결 + 부분봉/완성봉 발생 → DataFeed → (onCandleClose=true) → Controller → Strategy → (주문시) OrderFeed.Publish
-OrderFeed → Consumer → Broker 체결
-
-# 구조
-raccoon.go (메인 봇)
-
-Exchange(Upbit), DataFeed, OrderFeed, Strategy, Controller를 내부에서 관리
-SetupSubscriptions()에서 Preload + Subscribe 설정
-Start()/Stop()에서 DataFeedSub, OrderFeedSub, Exchange 모두 구동/종료
-
-consumer 패키지
-DataFeedConsumer(Controller.OnCandle로 전달) / OrderFeedConsumerBroker(Broker CreateOrder*로 체결)
-
-feed.DataFeedSubscription
-onCandleClose 옵션
-Preload 시 이미 Complete=true 봉만 한꺼번에 전달
-부분봉(Complete=false) + 완성봉(Complete=true)을 받되, 구독자가 “complete=true만 원하면 해당 봉만” 호출 → \ 단일 채널 구조지만, boolean 분기
-
-CandleAggregator
-1초봉 -> 부분봉(Partial) / 주기 경계 시 완성봉(Final)
-buffer에서 removeOldSeconds, aggregateBuffer 등 → 중복/누락 관리.
-
-nohup caffeinate -i ./raccoon > raccoon.log 2>&1 &
 
