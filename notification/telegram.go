@@ -36,7 +36,6 @@ func (t *TelegramNotifier) SendNotification(message string) error {
 	return err
 }
 
-// OrderNotifier 는 주문 실행 결과(성공/실패)를 인자로 받아 알림 메시지를 전송합니다.
 func (t *TelegramNotifier) OrderNotifier(order model.Order, err error) {
 	if err != nil {
 		message := fmt.Sprintf("주문 실행 실패:\n종목: %s\n오류: %v", order.Pair, err)

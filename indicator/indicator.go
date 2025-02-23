@@ -238,7 +238,6 @@ func CustomBollingerBands(data []model.Candle, period int, multiplier float64) (
 		ma := sum / float64(period)
 		middleBand[i] = ma
 
-		// 표준편차 계산
 		variance := 0.0
 		for j := i - period + 1; j <= i; j++ {
 			variance += math.Pow(data[j].Close-ma, 2)
@@ -249,7 +248,6 @@ func CustomBollingerBands(data []model.Candle, period int, multiplier float64) (
 		lowerBand[i] = ma - (multiplier * stdDev)
 	}
 
-	// 초기값은 NaN으로 설정
 	for i := 0; i < period-1; i++ {
 		middleBand[i] = math.NaN()
 		upperBand[i] = math.NaN()
@@ -270,7 +268,6 @@ func DetectMonthlyTrendsDF(df *model.Dataframe, threshold float64) []TrendType {
 		return nil
 	}
 
-	// 1) 월별로 캔들을 묶기 위해 map 구성
 	monthlyMap := make(map[string][]model.Candle)
 	for i := 0; i < n; i++ {
 		yyyymm := df.Time[i].Format("2006-01")
@@ -285,7 +282,6 @@ func DetectMonthlyTrendsDF(df *model.Dataframe, threshold float64) []TrendType {
 		monthlyMap[yyyymm] = append(monthlyMap[yyyymm], c)
 	}
 
-	// 2) MonthlyTrend 슬라이스를 만들어 추세 계산
 	var months []MonthlyTrend
 	for yyyymm, candles := range monthlyMap {
 		mt, _ := time.Parse("2006-01", yyyymm)
@@ -294,12 +290,10 @@ func DetectMonthlyTrendsDF(df *model.Dataframe, threshold float64) []TrendType {
 			Candles: candles,
 		})
 	}
-	// 월이 오름차순(오래된 순)으로 정렬되도록
 	sort.Slice(months, func(i, j int) bool {
 		return months[i].Month.Before(months[j].Month)
 	})
 
-	// 3) 실제 추세 감지
 	for i := range months {
 		if len(months[i].Candles) == 0 {
 			months[i].Trend = Sideways
@@ -308,7 +302,6 @@ func DetectMonthlyTrendsDF(df *model.Dataframe, threshold float64) []TrendType {
 		startPrice := months[i].Candles[0].Close
 		endPrice := months[i].Candles[len(months[i].Candles)-1].Close
 		if math.Abs(startPrice) < 1e-8 {
-			// 혹시 0에 가까우면 그냥 Sideways 처리(에러 방지)
 			months[i].Trend = Sideways
 			continue
 		}
@@ -324,7 +317,6 @@ func DetectMonthlyTrendsDF(df *model.Dataframe, threshold float64) []TrendType {
 		}
 	}
 
-	// 4) df의 각 봉이 어떤 월에 속하는지 찾아서 TrendType을 할당
 	trendArr := make([]TrendType, n)
 	for i := 0; i < n; i++ {
 		yyyymm := df.Time[i].Format("2006-01")

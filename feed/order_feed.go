@@ -39,8 +39,6 @@ func NewOrderFeed() *OrderFeedSubscription {
 	}
 }
 
-// 전체적인 흐름 : New -> Subscribe -> Start -> Publish
-
 func (d *OrderFeedSubscription) Subscribe(pair string, consumer OrderFeedConsumer) {
 	d.mu.Lock()
 	defer d.mu.Unlock()

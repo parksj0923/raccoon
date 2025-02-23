@@ -41,8 +41,6 @@ type DataFeedSubscription struct {
 	cancel context.CancelFunc
 }
 
-// 전체적인 흐름 : New -> Subscribe -> Preload -> Start(Connect)
-
 func NewDataFeed(exchange interfaces.Exchange) *DataFeedSubscription {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &DataFeedSubscription{
@@ -55,7 +53,6 @@ func NewDataFeed(exchange interfaces.Exchange) *DataFeedSubscription {
 	}
 }
 
-// Subscribe : 구독 등록 (pair, period, consumer callback, onCandleClose)
 func (d *DataFeedSubscription) Subscribe(
 	pair, period string,
 	consumer DataFeedConsumer,
@@ -71,7 +68,6 @@ func (d *DataFeedSubscription) Subscribe(
 	})
 }
 
-// Preload : 미리 읽어온 캔들을 구독자에게 전달(옵션)
 func (d *DataFeedSubscription) Preload(pair, period string, candles []model.Candle) {
 	log.Infof("[SETUP] preloading %d candles for %s-%s", len(candles), pair, period)
 	key := d.makeFeedKey(pair, period)
@@ -91,14 +87,11 @@ func (d *DataFeedSubscription) Preload(pair, period string, candles []model.Cand
 	}
 }
 
-// Start : 고루틴을 띄워 candle/error 수신, 구독자에 전달
 func (d *DataFeedSubscription) Start(loadSync bool) {
-	// 1) Connect 호출
 	d.Connect()
 
 	wg := new(sync.WaitGroup)
 
-	// 2) 모든 feed(key)에 대해 고루틴
 	for key, feed := range d.DataFeeds {
 		wg.Add(1)
 
@@ -108,7 +101,6 @@ func (d *DataFeedSubscription) Start(loadSync bool) {
 			for {
 				select {
 				case <-d.ctx.Done():
-					// 취소 신호를 받으면 종료
 					return
 				case candle, ok := <-feed.Data:
 					if !ok {
@@ -144,7 +136,6 @@ func (d *DataFeedSubscription) Start(loadSync bool) {
 	}
 }
 
-// Connect : 실제 CandlesSubscription를 호출하여, (chan Candle, chan error)를 구성
 func (d *DataFeedSubscription) Connect() {
 	log.Infof("Connecting to the exchange. (Upbit data feed)")
 	for feed := range d.Feeds.Iter() {
@@ -152,7 +143,6 @@ func (d *DataFeedSubscription) Connect() {
 
 		cCandle, cErr := d.exchange.CandlesSubscription(pair, period)
 
-		// 3) DataFeed 구성
 		d.DataFeeds[feed] = &DataFeed{
 			Data: cCandle,
 			Err:  cErr,
@@ -160,17 +150,14 @@ func (d *DataFeedSubscription) Connect() {
 	}
 }
 
-// Stop : 모든 고루틴(구독) 종료
 func (d *DataFeedSubscription) Stop() {
 	d.cancel() // 모든 고루틴에게 취소 신호 전송
 }
 
-// feedKey : (pair, period) => "pair_period"
 func (d *DataFeedSubscription) makeFeedKey(pair, period string) string {
 	return fmt.Sprintf("%s_%s", pair, period)
 }
 
-// pairPeriodFromKey : "pair--period" => (pair, period)
 func (d *DataFeedSubscription) getPairPeriodFromKey(key string) (string, string) {
 	parts := strings.Split(key, "_")
 	return parts[0], parts[1]

@@ -14,8 +14,6 @@ import (
 
 var currentPrice float64 = 0.0
 
-// processOrder는 orderFeed를 통해 발행된 주문을 "실제" 체결하는 함수입니다.
-// 여기서는 주문 실행 가격으로 현재 캔들의 종가(currentPrice)를 사용합니다.
 func processOrder(order model.Order, broker *exchange.BacktestBroker) {
 	if order.Side == model.SideTypeBuy {
 		// 매수 주문: order.Price 필드에 지정된 금액(KRW)로 매수
@@ -44,7 +42,6 @@ func processOrder(order model.Order, broker *exchange.BacktestBroker) {
 }
 
 func main() {
-	// 설정: 거래쌍, 타임프레임, 백테스트 기간 등
 	pair := "KRW-XRP"
 	timeframe := "1m"
 	KSTloc, _ := time.LoadLocation("Asia/Seoul")

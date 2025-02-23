@@ -54,25 +54,19 @@ type Upbit struct {
 	aggregatorMap map[string]*CandleAggregator
 }
 
-// CandleAggregator : 특정 pair(예: KRW-BTC)에 대한 실시간 봉 생성기
-// 1초봉들(WS) 누적 → 원하는 period 에 맞게 합성
 type CandleAggregator struct {
 	pair     string
 	period   string
 	duration time.Duration
 
-	//1초당 들어오는 candle을 임시저장, 매초를 key로 잡아 중복데이터지만 다른시간인경우 override
-	buffer map[time.Time]model.Candle
-	//이 구간이 끝나서 완성봉이 만들어질 때까지 기다려야 하는 시간
+	buffer     map[time.Time]model.Candle
 	currentKey time.Time
 
 	candleCh chan model.Candle
 	errCh    chan error
 }
 
-// NewUpbit : Upbit 객체 생성
 func NewUpbit(apiKey, secretKey string, pairs []string) (*Upbit, error) {
-	//pair => "KRW-BTC"
 	ctx, cancel := context.WithCancel(context.Background())
 	restyClient := resty.NewDefaultRestyClient(true, 10*time.Second)
 	up := &Upbit{
@@ -92,7 +86,6 @@ func NewUpbit(apiKey, secretKey string, pairs []string) (*Upbit, error) {
 			log.Errorf("[UPBIT] Failed to fetch upbit exchange pair %s: %v", pair, err)
 			continue
 		}
-		// chance -> model.AssetInfo
 		ai, err := convertChanceToAssetInfo(chance)
 		if err != nil {
 			log.Errorf("[UPBIT] Failed to convert upbit exchange pair %s: %v", pair, err)
@@ -104,10 +97,6 @@ func NewUpbit(apiKey, secretKey string, pairs []string) (*Upbit, error) {
 
 	return up, nil
 }
-
-// -----------------------------------------------------------------------------
-// Broker 구현부: 주문, 계좌 등
-// -----------------------------------------------------------------------------
 
 func (u *Upbit) Account() (model.Asset, error) {
 	body, err := u.requestUpbitGET(u.ctx, "/v1/accounts", nil)
@@ -217,11 +206,9 @@ func (u *Upbit) ClosedOrders(pair string, limit int) ([]model.Order, error) {
 	return nil, errors.New("not implemented: Upbit orders list")
 }
 
-// CreateOrderLimit 수정: 주문 가격(limit)을 새 정책에 맞게 validatePrice 함수로 보정합니다.
 func (u *Upbit) CreateOrderLimit(side model.SideType, pair string,
 	quantity float64, limit float64, tif ...model.TimeInForceType) (model.Order, error) {
 
-	// 새 호가 정책에 따라 주문 가격 내림 처리
 	validPrice := validatePrice(limit, pair)
 
 	params := map[string]interface{}{
@@ -337,10 +324,6 @@ func (u *Upbit) Cancel(order model.Order, isIdentifier bool) error {
 	return err
 }
 
-// -----------------------------------------------------------------------------
-// Feeder 구현부: 시세(캔들)
-// -----------------------------------------------------------------------------
-
 func (u *Upbit) AssetsInfo(pair string) model.AssetInfo {
 
 	pair = strings.ToUpper(pair)
@@ -358,7 +341,6 @@ func (u *Upbit) AssetsInfo(pair string) model.AssetInfo {
 	return result
 }
 
-// LastQuote : Ticker로 현재가
 func (u *Upbit) LastQuote(pair string) (float64, error) {
 	// GET /v1/ticker?markets=KRW-BTC
 	params := map[string]interface{}{}
@@ -378,7 +360,6 @@ func (u *Upbit) LastQuote(pair string) (float64, error) {
 	return res[0].TradePrice, nil
 }
 
-// CandlesByLimit : (REST) /v1/candles/...
 func (u *Upbit) CandlesByLimit(pair, period string, limit int) ([]model.Candle, error) {
 	if limit > CandlePageLimit {
 		return nil, fmt.Errorf("candles limit exceeds 200")
@@ -430,7 +411,6 @@ func (u *Upbit) CandlesByLimit(pair, period string, limit int) ([]model.Candle, 
 	return candles, nil
 }
 
-// CandlesByPeriod : (REST) start~end
 func (u *Upbit) CandlesByPeriod(pair, period string, start, end time.Time) ([]model.Candle, error) {
 	endpoint, err := tools.MapPeriodToCandleEndpoint(period)
 	if err != nil {
@@ -477,8 +457,6 @@ func (u *Upbit) CandlesByPeriod(pair, period string, start, end time.Time) ([]mo
 			allCandles = append(allCandles, c)
 		}
 
-		// (f) 가장 오래된 캔들(=raw 마지막)에 적힌 시간을 구해, toTime = 그 시간보다 1초 더 과거
-		// raw는 최신->과거 => 가장 오래된 것은 raw[len(raw)-1]
 		oldest := raw[len(raw)-1]
 		oldestTime, _ := time.ParseInLocation("2006-01-02T15:04:05", oldest.CandleDateTimeKST, KSTLocation)
 
@@ -493,7 +471,6 @@ func (u *Upbit) CandlesByPeriod(pair, period string, start, end time.Time) ([]mo
 		return a.Time.Unix() < b.Time.Unix()
 	})
 
-	// start~end 범위 필터
 	var result []model.Candle
 	for _, c := range allCandles {
 		if c.Time.Equal(start) || c.Time.Equal(end) ||
@@ -504,17 +481,14 @@ func (u *Upbit) CandlesByPeriod(pair, period string, start, end time.Time) ([]mo
 	return result, nil
 }
 
-// CandlesSubscription : WebSocket 실시간 캔들
 func (u *Upbit) CandlesSubscription(pair, period string) (chan model.Candle, chan error) {
 	key := pair + "_" + period
 
-	// 1) 이미 aggregator가 있으면 => 재사용
 	if agg, ok := u.aggregatorMap[key]; ok {
 		// 웹소켓도 이미 돌고 있다고 가정
 		return agg.candleCh, agg.errCh
 	}
 
-	// 2) aggregator가 없으니 새로 생성
 	dur, err := tools.ParseTimeframeToDuration(period)
 	if err != nil {
 		cch := make(chan model.Candle)
@@ -538,8 +512,6 @@ func (u *Upbit) CandlesSubscription(pair, period string) (chan model.Candle, cha
 	agg.initCurrentKey(now)
 	diff := agg.currentKey.Sub(now)
 	if diff < agg.duration {
-		// (a) 이전 구간: [currentKey - duration, now)
-		//     예: [11:00, 11:40)
 		prevStart := agg.currentKey.Add(-agg.duration)
 		log.Infof("[CandlesSubscription] check: currentKey=%v, now=%v => Preload[%v~%v)",
 			agg.currentKey, now, prevStart, now)
@@ -560,7 +532,6 @@ func (u *Upbit) CandlesSubscription(pair, period string) (chan model.Candle, cha
 		log.Infof("[CandlesSubscription] skip preload. diff=%v >= duration=%v", diff, agg.duration)
 	}
 
-	// 5) WebSocket 실행 (처음 aggregator 생성 시점에만)
 	go u.wsRunIfNeeded()
 
 	return agg.candleCh, agg.errCh
@@ -572,10 +543,6 @@ func (agg *CandleAggregator) initCurrentKey(t time.Time) {
 	}
 	agg.currentKey = t0
 }
-
-// -----------------------------------------------------------------------------
-// WebSocket run (candle.1s 구독)
-// -----------------------------------------------------------------------------
 
 func (u *Upbit) Start() {
 	go u.wsRunIfNeeded()
